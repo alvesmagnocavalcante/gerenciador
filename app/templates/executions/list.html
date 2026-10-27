@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Histórico de Execuções - PyAutomation Manager{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="pb-4 border-b border-zinc-200 dark:border-zinc-800">
+        <h1 class="text-2xl font-bold text-zinc-900 dark:text-white tracking-tight">Histórico de Execuções</h1>
+        <p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Acompanhe todas as execuções manuais e agendadas com seus respectivos resultados.</p>
+    </div>
+
+    <div class="bg-white dark:bg-zinc-900 shadow-sm border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden transition-colors">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-left text-sm">
+                <thead class="bg-zinc-50 dark:bg-zinc-800/60 text-zinc-500 dark:text-zinc-400 font-semibold uppercase text-xs">
+                    <tr>
+                        <th class="px-6 py-3.5">ID</th>
+                        <th class="px-6 py-3.5">Automação</th>
+                        <th class="px-6 py-3.5">Tipo de Disparo</th>
+                        <th class="px-6 py-3.5">Início</th>
+                        <th class="px-6 py-3.5">Duração</th>
+                        <th class="px-6 py-3.5">Status</th>
+                        <th class="px-6 py-3.5">Exit Code</th>
+                        <th class="px-6 py-3.5 text-right">Ação</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800 bg-white dark:bg-zinc-900">
+                    {% if executions %}
+                        {% for exec in executions %}
+                        <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition">
+                            <td class="px-6 py-4 font-mono text-xs text-zinc-600 dark:text-zinc-400">#{{ exec.id }}</td>
+                            <td class="px-6 py-4">
+                                {% if exec.automation %}
+                                    <a href="/automations/{{ exec.automation.id }}" class="font-semibold text-zinc-900 dark:text-zinc-100 hover:text-sky-600 dark:hover:text-sky-400">
+                                        {{ exec.automation.name }}
+                                    </a>
+                                {% else %}
+                                    <span class="text-zinc-400 dark:text-zinc-500">Automação removida (#{{ exec.automation_id }})</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-xs text-zinc-600 dark:text-zinc-300 uppercase font-medium">
+                                {{ exec.trigger_type }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-xs text-zinc-600 dark:text-zinc-300">
+                                {{ exec.started_at | localdatetime('%d/%m/%Y %H:%M:%S') }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-xs text-zinc-600 dark:text-zinc-300">
+                                {{ exec.duration_seconds if exec.duration_seconds is not none else '-' }}s
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                {% if exec.status == 'SUCCESS' %}
+                                    <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">Sucesso</span>
+                                {% elif exec.status in ['FAILED', 'TIMEOUT'] %}
+                                    <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300">{{ exec.status }}</span>
+                                {% elif exec.status in ['PENDING', 'RUNNING'] %}
+                                    <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 animate-pulse">Executando</span>
+                                {% else %}
+                                    <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">{{ exec.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 font-mono text-xs text-zinc-600 dark:text-zinc-400">
+                                {{ exec.exit_code if exec.exit_code is not none else '-' }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-xs font-semibold">
+                                <a href="/executions/{{ exec.id }}" class="text-sky-600 dark:text-sky-400 hover:underline">
+                                    Ver Logs &rarr;
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="8" class="px-6 py-12 text-center text-sm text-zinc-400 dark:text-zinc-500">
+                                Nenhuma execução registrada ainda.
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

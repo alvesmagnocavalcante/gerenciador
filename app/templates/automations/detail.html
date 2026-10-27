@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% block title %}{{ automation.name }} - PyAutomation Manager{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Breadcrumb e Topo -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-zinc-200 dark:border-zinc-800">
+        <div>
+            <div class="flex items-center space-x-2 text-xs text-zinc-500 dark:text-zinc-400 mb-1">
+                <a href="/automations" class="hover:text-sky-600 dark:hover:text-sky-400">&larr; Automações</a>
+                <span>/</span>
+                <span>ID #{{ automation.id }}</span>
+            </div>
+            <div class="flex items-center space-x-3">
+                <h1 class="text-2xl font-bold text-zinc-900 dark:text-white tracking-tight">{{ automation.name }}</h1>
+                {% if automation.status == 'active' %}
+                    <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">Ativa</span>
+                {% elif automation.status == 'paused' %}
+                    <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">Pausada</span>
+                {% else %}
+                    <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-300">Desativada</span>
+                {% endif %}
+            </div>
+            {% if automation.description %}
+            <p class="text-sm text-zinc-600 dark:text-zinc-400 mt-1">{{ automation.description }}</p>
+            {% endif %}
+        </div>
+
+        <div class="mt-4 sm:mt-0 flex flex-wrap items-center gap-2">
+            <!-- Disparo manual com HTMX -->
+            <button hx-post="/automations/{{ automation.id }}/run" hx-target="#action-feedback"
+                class="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-sky-600 hover:bg-sky-700 transition">
+                ▶ Executar Agora
+            </button>
+
+            {% if automation.source_type == 'git' %}
+            <button hx-post="/automations/{{ automation.id }}/sync-git" hx-target="#action-feedback"
+                class="inline-flex items-center px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition">
+                🔄 Atualizar Git
+            </button>
+            {% endif %}
+
+            {% if automation.source_type in ['git', 'local'] %}
+            <button hx-post="/automations/{{ automation.id }}/rebuild-venv" hx-target="#action-feedback"
+                class="inline-flex items-center px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                title="Reconstrói o ambiente virtual e instala requirements.txt / pyproject.toml">
+                📦 Reinstalar Dependências
+            </button>
+            {% endif %}
+
+            <a href="/automations/{{ automation.id }}/edit" class="inline-flex items-center px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition">
+                ✏️ Editar
+            </a>
+
+            {% if automation.source_type == 'git' %}
+            <button hx-post="/automations/{{ automation.id }}/clean-workspace" hx-target="#action-feedback"
+                class="inline-flex items-center px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                title="Apaga os arquivos clonados do repositório no disco para liberar espaço">
+                🧹 Limpar Código
+            </button>
+            {% endif %}
+
+            <form action="/automations/{{ automation.id }}/toggle-status" method="POST" class="inline">
+                <button type="submit" class="inline-flex items-center px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition">
+                    {% if automation.status == 'active' %}Pausar{% else %}Retomar{% endif %}
+                </button>
+            </form>
+
+            <form action="/automations/{{ automation.id }}/delete" method="POST" class="inline" onsubmit="return confirm('Deseja realmente excluir esta automação e seu histórico?')">
+                <button type="submit" class="inline-flex items-center px-3 py-2 border border-rose-200 dark:border-rose-900/50 rounded-lg text-sm font-medium text-rose-600 dark:text-rose-400 bg-white dark:bg-zinc-800 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition">
+                    Excluir
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Div para retorno de HTMX -->
+    <div id="action-feedback"></div>
+
+    <!-- Grid de Informações e Configurações -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Coluna 1: Origem e Versão -->
+        <div class="bg-white dark:bg-zinc-900 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-3 transition-colors">
+            <h3 class="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Origem & Versão</h3>
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Tipo:</span>
+                <span class="font-semibold text-zinc-800 dark:text-zinc-200 ml-1 uppercase">{{ automation.source_type }}</span>
+            </div>
+            {% if automation.source_type == 'git' %}
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Repositório:</span>
+                <span class="font-mono text-xs text-zinc-800 dark:text-zinc-200 block truncate mt-0.5">{{ automation.git_url }}</span>
+            </div>
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Branch:</span>
+                <span class="font-semibold text-zinc-800 dark:text-zinc-200 ml-1">{{ automation.git_branch }}</span>
+            </div>
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Commit Atual:</span>
+                {% if automation.current_commit %}
+                <code class="bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 px-1.5 py-0.5 rounded text-xs ml-1">{{ automation.current_commit[:8] }}</code>
+                {% else %}
+                <span class="text-zinc-400 dark:text-zinc-500 ml-1">Não clonado</span>
+                {% endif %}
+            </div>
+            {% elif automation.source_type == 'http' %}
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Endpoint:</span>
+                <code class="bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 px-1 py-0.5 rounded text-xs block truncate mt-0.5">{{ automation.http_method }} {{ automation.http_url }}</code>
+            </div>
+            {% else %}
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Arquivo:</span>
+                <code class="bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 px-1.5 py-0.5 rounded text-xs ml-1">{{ automation.entrypoint }}</code>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Coluna 2: Agendamento -->
+        <div class="bg-white dark:bg-zinc-900 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-3 transition-colors">
+            <h3 class="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Agendamento</h3>
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Disparo:</span>
+                <span class="font-semibold text-zinc-800 dark:text-zinc-200 ml-1 uppercase">{{ automation.trigger_type }}</span>
+            </div>
+            {% if automation.trigger_type == 'cron' %}
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Cron:</span>
+                <code class="bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 px-1.5 py-0.5 rounded text-xs ml-1">{{ automation.cron_expression }}</code>
+            </div>
+            {% elif automation.trigger_type == 'interval' %}
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Intervalo:</span>
+                <span class="font-semibold text-zinc-800 dark:text-zinc-200 ml-1">{{ automation.interval_seconds }} segundos</span>
+            </div>
+            {% endif %}
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Próxima Execução:</span>
+                <div class="font-semibold text-sky-600 dark:text-sky-400 mt-0.5">
+                    {{ automation.next_run_at | localdatetime('%d/%m/%Y %H:%M:%S') if automation.next_run_at else 'Sem agendamento ativo' }}
+                </div>
+            </div>
+        </div>
+
+        <!-- Coluna 3: Limites & Parâmetros -->
+        <div class="bg-white dark:bg-zinc-900 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-3 transition-colors">
+            <h3 class="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Execução & Tolerância</h3>
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Timeout:</span>
+                <span class="font-semibold text-zinc-800 dark:text-zinc-200 ml-1">{{ automation.timeout_seconds }}s</span>
+            </div>
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Tentativas (Retries):</span>
+                <span class="font-semibold text-zinc-800 dark:text-zinc-200 ml-1">{{ automation.max_retries }}</span>
+            </div>
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Delay entre retries:</span>
+                <span class="font-semibold text-zinc-800 dark:text-zinc-200 ml-1">{{ automation.retry_delay_seconds }}s</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Visualizador de Código Local se aplicável -->
+    {% if code_content %}
+    <div class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden transition-colors">
+        <div class="px-5 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/60 flex items-center justify-between">
+            <span class="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">Código Principal ({{ automation.entrypoint }})</span>
+        </div>
+        <pre class="bg-zinc-950 text-zinc-100 font-mono text-xs p-4 overflow-x-auto leading-relaxed select-text">{{ code_content }}</pre>
+    </div>
+    {% endif %}
+
+    <!-- Seção de Variáveis de Ambiente (.env) -->
+    <div class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden transition-colors">
+        <div class="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+                <h3 class="text-base font-semibold text-zinc-900 dark:text-white flex items-center">
+                    <span class="mr-2">🔐</span> Variáveis de Ambiente (.env)
+                </h3>
+                <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                    Defina as variáveis no formato <code class="bg-zinc-200 dark:bg-zinc-800 px-1 py-0.5 rounded font-mono text-xs">CHAVE=VALOR</code>. Elas são gravadas no arquivo <code class="font-mono text-sky-600 dark:text-sky-400">.env</code> e injetadas no processo durante a execução.
+                </p>
+            </div>
+            {% if env_example_content %}
+            <button type="button" onclick="loadEnvExample()" class="inline-flex items-center text-xs font-medium text-sky-600 dark:text-sky-400 hover:underline">
+                💡 Preencher com modelo de .env.example
+            </button>
+            {% endif %}
+        </div>
+        <div class="p-6">
+            <div id="env-feedback"></div>
+            <form hx-post="/automations/{{ automation.id }}/env" hx-target="#env-feedback" method="POST" class="space-y-4">
+                <div>
+                    <textarea id="env_vars_textarea" name="env_vars" rows="6" font-mono
+                        placeholder="CHAVE=VALOR&#10;OUTRA_CHAVE=valor"
+                        class="w-full font-mono text-xs p-3.5 bg-zinc-950 border border-zinc-700 text-zinc-100 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none leading-relaxed select-text">{{ automation.env_vars or '' }}</textarea>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-xs text-zinc-400 dark:text-zinc-500">Linhas iniciadas com <code class="font-mono">#</code> são tratadas como comentários.</span>
+                    <button type="submit" class="inline-flex items-center px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow-sm transition">
+                        💾 Salvar Variáveis (.env)
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Histórico de Execuções desta Automação -->
+    <div class="bg-white dark:bg-zinc-900 shadow-sm border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden transition-colors">
+        <div class="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center">
+            <h3 class="text-base font-semibold text-zinc-900 dark:text-white">Histórico de Execuções</h3>
+            <span class="text-xs text-zinc-400 dark:text-zinc-500">{{ executions|length }} execuções registradas</span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-left text-sm">
+                <thead class="bg-zinc-50 dark:bg-zinc-800/60 text-zinc-500 dark:text-zinc-400 font-semibold uppercase text-xs">
+                    <tr>
+                        <th class="px-6 py-3">ID</th>
+                        <th class="px-6 py-3">Disparo</th>
+                        <th class="px-6 py-3">Início</th>
+                        <th class="px-6 py-3">Duração</th>
+                        <th class="px-6 py-3">Status</th>
+                        <th class="px-6 py-3">Exit Code</th>
+                        <th class="px-6 py-3 text-right">Ação</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800 bg-white dark:bg-zinc-900">
+                    {% if executions %}
+                        {% for exec in executions %}
+                        <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition">
+                            <td class="px-6 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">#{{ exec.id }}</td>
+                            <td class="px-6 py-3 uppercase text-xs font-medium text-zinc-700 dark:text-zinc-300">{{ exec.trigger_type }}</td>
+                            <td class="px-6 py-3 text-xs text-zinc-600 dark:text-zinc-400">{{ exec.started_at | localdatetime('%d/%m/%Y %H:%M:%S') }}</td>
+                            <td class="px-6 py-3 text-xs text-zinc-600 dark:text-zinc-400">{{ exec.duration_seconds }}s</td>
+                            <td class="px-6 py-3">
+                                {% if exec.status == 'SUCCESS' %}
+                                    <span class="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">Sucesso</span>
+                                {% elif exec.status in ['FAILED', 'TIMEOUT'] %}
+                                    <span class="px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300">{{ exec.status }}</span>
+                                {% elif exec.status in ['PENDING', 'RUNNING'] %}
+                                    <span class="px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 animate-pulse">Executando</span>
+                                {% else %}
+                                    <span class="px-2 py-0.5 rounded text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">{{ exec.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{{ exec.exit_code if exec.exit_code is not none else '-' }}</td>
+                            <td class="px-6 py-3 text-right">
+                                <a href="/executions/{{ exec.id }}" class="text-xs text-sky-600 dark:text-sky-400 hover:underline font-semibold">
+                                    Ver Logs &rarr;
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="7" class="px-6 py-8 text-center text-sm text-zinc-400 dark:text-zinc-500">
+                                Nenhuma execução realizada ainda. Clique em "Executar Agora" para iniciar a primeira.
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if env_example_content %}
+<script>
+const envExampleData = {{ env_example_content|tojson }};
+function loadEnvExample() {
+    const textarea = document.getElementById('env_vars_textarea');
+    if (!textarea.value.trim() || confirm('Substituir as variáveis atuais pelo modelo do .env.example?')) {
+        textarea.value = envExampleData;
+        textarea.focus();
+    }
+}
+</script>
+{% endif %}
+{% endblock %}

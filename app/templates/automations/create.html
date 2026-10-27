@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block title %}Nova Automação - PyAutomation Manager{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+    <div class="pb-4 border-b border-zinc-200 dark:border-zinc-800">
+        <a href="/automations" class="text-xs text-sky-600 dark:text-sky-400 hover:underline font-medium">&larr; Voltar para automações</a>
+        <h1 class="text-2xl font-bold text-zinc-900 dark:text-white tracking-tight mt-1">Cadastrar Nova Automação</h1>
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">Configure os parâmetros de execução, agendamento e origem do código.</p>
+    </div>
+
+    <form action="/automations/new" method="POST" class="space-y-6">
+        <!-- 1. Dados Básicos -->
+        <div class="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
+            <h2 class="text-base font-semibold text-zinc-900 dark:text-white border-b border-zinc-100 dark:border-zinc-800 pb-2">1. Identificação</h2>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Nome da Automação *</label>
+                    <input type="text" name="name" required placeholder="Ex: Sincronização de Vendas"
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Descrição</label>
+                    <textarea name="description" rows="2" placeholder="Descreva brevemente o propósito deste script..."
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Origem do Código -->
+        <div class="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
+            <h2 class="text-base font-semibold text-zinc-900 dark:text-white border-b border-zinc-100 dark:border-zinc-800 pb-2">2. Origem da Automação</h2>
+            <div>
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Tipo de Origem</label>
+                <select name="source_type" id="source_type" onchange="toggleSourceFields()"
+                    class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                    <option value="local">Script Python Local</option>
+                    <option value="git">Repositório Git / GitHub</option>
+                    <option value="http">Chamada HTTP / API Webhook</option>
+                </select>
+            </div>
+
+            <!-- Campos Local -->
+            <div id="fields_local" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Código Python (Opcional se já existir no servidor)</label>
+                    <textarea name="local_script_content" rows="6" placeholder="# Código Python a ser executado&#10;print('Olá do PyAutomation!')"
+                        class="mt-1 block w-full font-mono text-xs px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg focus:ring-sky-500 focus:border-sky-500"></textarea>
+                </div>
+            </div>
+
+            <!-- Campos Git -->
+            <div id="fields_git" class="space-y-4 hidden">
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">URL do Repositório Git *</label>
+                    <input type="text" name="git_url" placeholder="https://github.com/usuario/meu-repo.git"
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Branch / Tag</label>
+                        <input type="text" name="git_branch" value="main"
+                            class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Token de Acesso (Privado)</label>
+                        <input type="password" name="git_token" placeholder="ghp_xxx (opcional para repositórios públicos)"
+                            class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Campos HTTP -->
+            <div id="fields_http" class="space-y-4 hidden">
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Método</label>
+                        <select name="http_method" class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                            <option value="PUT">PUT</option>
+                        </select>
+                    </div>
+                    <div class="sm:col-span-3">
+                        <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">URL do Endpoint *</label>
+                        <input type="text" name="http_url" placeholder="https://api.meuservico.com/webhook"
+                            class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Headers HTTP (JSON)</label>
+                    <input type="text" name="http_headers" placeholder='{"Authorization": "Bearer 123", "Content-Type": "application/json"}'
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-xs font-mono">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Corpo da Requisição (Body)</label>
+                    <textarea name="http_body" rows="3" placeholder='{"action": "sync"}'
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-xs font-mono"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Agendamento -->
+        <div class="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
+            <h2 class="text-base font-semibold text-zinc-900 dark:text-white border-b border-zinc-100 dark:border-zinc-800 pb-2">3. Motor de Agendamento</h2>
+            <div>
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Frequência</label>
+                <select name="trigger_type" id="trigger_type" onchange="toggleTriggerFields()"
+                    class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+                    <option value="none">Manual Apenas (Sem agendamento automático)</option>
+                    <option value="interval">Intervalo regular</option>
+                    <option value="cron">Expressão Cron personalizada</option>
+                    <option value="daily">Diário (Meia-noite UTC)</option>
+                    <option value="weekly">Semanal (Segunda-feira 00:00 UTC)</option>
+                </select>
+            </div>
+
+            <div id="field_interval" class="hidden">
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Intervalo em Segundos</label>
+                <input type="number" name="interval_seconds" min="10" placeholder="Ex: 300 para a cada 5 minutos"
+                    class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+            </div>
+
+            <div id="field_cron" class="hidden">
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Expressão Cron (5 campos: min hora dia mês semana)</label>
+                <input type="text" name="cron_expression" placeholder="Ex: */15 * * * * (a cada 15 min)"
+                    class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm font-mono">
+            </div>
+        </div>
+
+        <!-- 4. Configurações de Execução -->
+        <div class="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
+            <h2 class="text-base font-semibold text-zinc-900 dark:text-white border-b border-zinc-100 dark:border-zinc-800 pb-2">4. Execução, Timeouts e Retentativas</h2>
+            
+            <div>
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Arquivo Principal de Execução (Entrypoint) *</label>
+                <input type="text" name="entrypoint" value="main.py" required placeholder="Ex: main.py, bot.py, app.py, run.py"
+                    class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm font-mono focus:ring-sky-500 focus:border-sky-500">
+                <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Nome do arquivo Python que será executado pelo interpretador (padrão: <code class="font-mono text-sky-600 dark:text-sky-400">main.py</code>).</p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Timeout (segundos)</label>
+                    <input type="number" name="timeout_seconds" value="3600" required
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Tentativas de Reexecução</label>
+                    <input type="number" name="max_retries" value="0" min="0" max="5" required
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Delay entre Retries (s)</label>
+                    <input type="number" name="retry_delay_seconds" value="10" min="1" required
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Argumentos CLI adicionais</label>
+                <input type="text" name="arguments" placeholder="--verbose --mode production"
+                    class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm font-mono">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Limpeza de Arquivos pós-execução (Modo Efêmero)</label>
+                <select name="cleanup_mode" class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+                    <option value="none">Manter arquivos no disco (Padrão - execuções subsequentes mais rápidas)</option>
+                    <option value="delete_git">Remover pasta .git após clonar (Economiza espaço de versionamento)</option>
+                    <option value="delete_repo">Modo Efêmero Total: Apagar código após cada execução (Zero arquivos no disco)</option>
+                </select>
+                <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">No modo efêmero, os arquivos do código são apagados assim que a automação termina, e re-clonados sob demanda no próximo disparo.</p>
+            </div>
+        </div>
+
+        <!-- 5. Variáveis de Ambiente (.env) -->
+        <div class="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
+            <div class="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-2">
+                <h2 class="text-base font-semibold text-zinc-900 dark:text-white">5. Variáveis de Ambiente (.env)</h2>
+                <span class="text-xs text-zinc-400">Formato CHAVE=VALOR</span>
+            </div>
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                Insira as variáveis que serão injetadas no ambiente de execução e gravadas automaticamente no arquivo <code class="bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded text-sky-600 dark:text-sky-400">.env</code> do projeto.
+            </p>
+            <div>
+                <textarea name="env_vars" rows="6" font-mono placeholder="BOOKING_USERNAME=admin@exemplo.com&#10;BOOKING_PASSWORD=minhasenha&#10;HEADLESS=true&#10;CHAVE_API=xyz123"
+                    class="mt-1 block w-full font-mono text-xs px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg focus:ring-sky-500 focus:border-sky-500 leading-relaxed"></textarea>
+            </div>
+            <p class="text-xs text-zinc-400 dark:text-zinc-500">
+                * Uma variável por linha no padrão <code class="font-mono">CHAVE=VALOR</code> (linhas iniciadas com <code class="font-mono">#</code> são tratadas como comentários).
+            </p>
+        </div>
+
+        <!-- Botões de Ação -->
+        <div class="flex justify-end space-x-3 pt-2">
+            <a href="/automations" class="px-4 py-2 border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-lg text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 transition">
+                Cancelar
+            </a>
+            <button type="submit" class="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-sm font-semibold transition">
+                Salvar e Criar Automação
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+function toggleSourceFields() {
+    const val = document.getElementById('source_type').value;
+    document.getElementById('fields_local').classList.toggle('hidden', val !== 'local');
+    document.getElementById('fields_git').classList.toggle('hidden', val !== 'git');
+    document.getElementById('fields_http').classList.toggle('hidden', val !== 'http');
+}
+
+function toggleTriggerFields() {
+    const val = document.getElementById('trigger_type').value;
+    document.getElementById('field_interval').classList.toggle('hidden', val !== 'interval');
+    document.getElementById('field_cron').classList.toggle('hidden', val !== 'cron');
+}
+</script>
+{% endblock %}

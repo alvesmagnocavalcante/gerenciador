@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+
+{% block title %}Editar {{ automation.name }} - PyAutomation Manager{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+    <div class="pb-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+        <div>
+            <a href="/automations/{{ automation.id }}" class="text-xs text-sky-600 dark:text-sky-400 hover:underline font-medium">&larr; Voltar para detalhes</a>
+            <h1 class="text-2xl font-bold text-zinc-900 dark:text-white tracking-tight mt-1">Editar Automação: {{ automation.name }}</h1>
+            <p class="text-sm text-zinc-500 dark:text-zinc-400">Altere os parâmetros de execução, agendamento, origem e variáveis de ambiente.</p>
+        </div>
+        <div>
+            <span class="px-3 py-1 rounded-full text-xs font-semibold uppercase {% if automation.status == 'active' %}bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300{% elif automation.status == 'paused' %}bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300{% else %}bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-300{% endif %}">
+                Status: {{ automation.status }}
+            </span>
+        </div>
+    </div>
+
+    {% if error %}
+    <div class="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-800 dark:text-rose-300 text-sm">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form action="/automations/{{ automation.id }}/edit" method="POST" class="space-y-6">
+        <!-- 1. Dados Básicos -->
+        <div class="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
+            <h2 class="text-base font-semibold text-zinc-900 dark:text-white border-b border-zinc-100 dark:border-zinc-800 pb-2">1. Identificação</h2>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Nome da Automação *</label>
+                    <input type="text" name="name" required value="{{ automation.name }}"
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Descrição</label>
+                    <textarea name="description" rows="2"
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">{{ automation.description or '' }}</textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Origem do Código -->
+        <div class="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
+            <h2 class="text-base font-semibold text-zinc-900 dark:text-white border-b border-zinc-100 dark:border-zinc-800 pb-2">2. Origem da Automação</h2>
+            <div>
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Tipo de Origem</label>
+                <select name="source_type" id="source_type" onchange="toggleSourceFields()"
+                    class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                    <option value="local" {% if automation.source_type == 'local' %}selected{% endif %}>Script Python Local</option>
+                    <option value="git" {% if automation.source_type == 'git' %}selected{% endif %}>Repositório Git / GitHub</option>
+                    <option value="http" {% if automation.source_type == 'http' %}selected{% endif %}>Chamada HTTP / API Webhook</option>
+                </select>
+            </div>
+
+            <!-- Campos Local -->
+            <div id="fields_local" class="space-y-4 {% if automation.source_type != 'local' %}hidden{% endif %}">
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Conteúdo do Script Python (Local)</label>
+                    <textarea name="local_script_content" rows="6" font-mono
+                        class="mt-1 block w-full font-mono text-xs px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg focus:ring-sky-500 focus:border-sky-500">{{ local_script_content or '' }}</textarea>
+                </div>
+            </div>
+
+            <!-- Campos Git -->
+            <div id="fields_git" class="space-y-4 {% if automation.source_type != 'git' %}hidden{% endif %}">
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">URL do Repositório Git</label>
+                    <input type="text" name="git_url" value="{{ automation.git_url or '' }}" placeholder="https://github.com/usuario/meu-repo.git"
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Branch / Tag</label>
+                        <input type="text" name="git_branch" value="{{ automation.git_branch or 'main' }}"
+                            class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Token de Acesso (Privado)</label>
+                        <input type="password" name="git_token" value="{{ automation.git_token or '' }}" placeholder="ghp_xxx (opcional)"
+                            class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Campos HTTP -->
+            <div id="fields_http" class="space-y-4 {% if automation.source_type != 'http' %}hidden{% endif %}">
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Método</label>
+                        <select name="http_method" class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+                            <option value="GET" {% if automation.http_method == 'GET' %}selected{% endif %}>GET</option>
+                            <option value="POST" {% if automation.http_method == 'POST' %}selected{% endif %}>POST</option>
+                            <option value="PUT" {% if automation.http_method == 'PUT' %}selected{% endif %}>PUT</option>
+                        </select>
+                    </div>
+                    <div class="sm:col-span-3">
+                        <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">URL do Endpoint</label>
+                        <input type="text" name="http_url" value="{{ automation.http_url or '' }}" placeholder="https://api.meuservico.com/webhook"
+                            class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm focus:ring-sky-500 focus:border-sky-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Headers HTTP (JSON)</label>
+                    <input type="text" name="http_headers" value="{{ automation.http_headers or '' }}" placeholder='{"Authorization": "Bearer 123"}'
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-xs font-mono">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Corpo da Requisição (Body)</label>
+                    <textarea name="http_body" rows="3"
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-xs font-mono">{{ automation.http_body or '' }}</textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Agendamento -->
+        <div class="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
+            <h2 class="text-base font-semibold text-zinc-900 dark:text-white border-b border-zinc-100 dark:border-zinc-800 pb-2">3. Motor de Agendamento</h2>
+            <div>
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Frequência</label>
+                <select name="trigger_type" id="trigger_type" onchange="toggleTriggerFields()"
+                    class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+                    <option value="none" {% if automation.trigger_type == 'none' %}selected{% endif %}>Manual Apenas (Sem agendamento automático)</option>
+                    <option value="interval" {% if automation.trigger_type == 'interval' %}selected{% endif %}>Intervalo regular</option>
+                    <option value="cron" {% if automation.trigger_type == 'cron' %}selected{% endif %}>Expressão Cron personalizada</option>
+                    <option value="daily" {% if automation.trigger_type == 'daily' %}selected{% endif %}>Diário (Meia-noite UTC)</option>
+                    <option value="weekly" {% if automation.trigger_type == 'weekly' %}selected{% endif %}>Semanal (Segunda-feira 00:00 UTC)</option>
+                </select>
+            </div>
+
+            <div id="field_interval" class="{% if automation.trigger_type != 'interval' %}hidden{% endif %}">
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Intervalo em Segundos</label>
+                <input type="number" name="interval_seconds" value="{{ automation.interval_seconds or '' }}" min="10" placeholder="Ex: 300"
+                    class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+            </div>
+
+            <div id="field_cron" class="{% if automation.trigger_type != 'cron' %}hidden{% endif %}">
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Expressão Cron (5 campos: min hora dia mês semana)</label>
+                <input type="text" name="cron_expression" value="{{ automation.cron_expression or '' }}" placeholder="Ex: */15 * * * *"
+                    class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm font-mono">
+            </div>
+        </div>
+
+        <!-- 4. Configurações de Execução -->
+        <div class="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
+            <h2 class="text-base font-semibold text-zinc-900 dark:text-white border-b border-zinc-100 dark:border-zinc-800 pb-2">4. Execução, Timeouts e Retentativas</h2>
+            
+            <div>
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Arquivo Principal de Execução (Entrypoint) *</label>
+                <input type="text" name="entrypoint" value="{{ automation.entrypoint or 'main.py' }}" required placeholder="Ex: main.py, bot.py, app.py, run.py"
+                    class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm font-mono focus:ring-sky-500 focus:border-sky-500">
+                <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Nome do arquivo Python que será executado pelo interpretador (padrão: <code class="font-mono text-sky-600 dark:text-sky-400">main.py</code>).</p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Timeout (segundos)</label>
+                    <input type="number" name="timeout_seconds" value="{{ automation.timeout_seconds }}" required
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Tentativas de Reexecução</label>
+                    <input type="number" name="max_retries" value="{{ automation.max_retries }}" min="0" max="5" required
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Delay entre Retries (s)</label>
+                    <input type="number" name="retry_delay_seconds" value="{{ automation.retry_delay_seconds }}" min="1" required
+                        class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Argumentos CLI adicionais</label>
+                <input type="text" name="arguments" value="{{ automation.arguments or '' }}" placeholder="--verbose --mode production"
+                    class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm font-mono">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase">Limpeza de Arquivos pós-execução (Modo Efêmero)</label>
+                <select name="cleanup_mode" class="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg text-sm">
+                    <option value="none" {% if automation.cleanup_mode == 'none' %}selected{% endif %}>Manter arquivos no disco (Padrão - execuções mais rápidas)</option>
+                    <option value="delete_git" {% if automation.cleanup_mode == 'delete_git' %}selected{% endif %}>Remover pasta .git após clonar (Economiza espaço de versionamento)</option>
+                    <option value="delete_repo" {% if automation.cleanup_mode == 'delete_repo' %}selected{% endif %}>Modo Efêmero Total: Apagar código após cada execução (Zero arquivos no disco)</option>
+                </select>
+                <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">No modo efêmero, os arquivos do código são apagados assim que a automação termina, e re-clonados sob demanda no próximo disparo.</p>
+            </div>
+        </div>
+
+        <!-- 5. Variáveis de Ambiente (.env) -->
+        <div class="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
+            <div class="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-2">
+                <h2 class="text-base font-semibold text-zinc-900 dark:text-white">5. Variáveis de Ambiente (.env)</h2>
+                <span class="text-xs text-zinc-400">Formato CHAVE=VALOR</span>
+            </div>
+            <div>
+                <textarea name="env_vars" rows="6" font-mono placeholder="CHAVE=VALOR"
+                    class="mt-1 block w-full font-mono text-xs px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg focus:ring-sky-500 focus:border-sky-500 leading-relaxed">{{ automation.env_vars or '' }}</textarea>
+            </div>
+        </div>
+
+        <!-- Botões de Ação -->
+        <div class="flex justify-end space-x-3 pt-2">
+            <a href="/automations/{{ automation.id }}" class="px-4 py-2 border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-lg text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 transition">
+                Cancelar
+            </a>
+            <button type="submit" class="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-sm font-semibold transition">
+                💾 Salvar Alterações
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+function toggleSourceFields() {
+    const val = document.getElementById('source_type').value;
+    document.getElementById('fields_local').classList.toggle('hidden', val !== 'local');
+    document.getElementById('fields_git').classList.toggle('hidden', val !== 'git');
+    document.getElementById('fields_http').classList.toggle('hidden', val !== 'http');
+}
+
+function toggleTriggerFields() {
+    const val = document.getElementById('trigger_type').value;
+    document.getElementById('field_interval').classList.toggle('hidden', val !== 'interval');
+    document.getElementById('field_cron').classList.toggle('hidden', val !== 'cron');
+}
+</script>
+{% endblock %}

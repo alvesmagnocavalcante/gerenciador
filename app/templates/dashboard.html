@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - PyAutomation Manager{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <!-- Header com ação rápida -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-zinc-200 dark:border-zinc-800">
+        <div>
+            <h1 class="text-2xl font-bold text-zinc-900 dark:text-white tracking-tight">Visão Geral</h1>
+            <p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Acompanhamento e métricas de execução das suas automações em tempo real.</p>
+        </div>
+        <div class="mt-4 sm:mt-0 flex space-x-3">
+            <a href="/automations/new" class="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-sky-600 hover:bg-sky-700 transition">
+                + Nova Automação
+            </a>
+        </div>
+    </div>
+
+    <!-- Cards de Métricas -->
+    <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5">
+        <div class="bg-white dark:bg-zinc-900 overflow-hidden shadow-sm border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 transition-colors">
+            <div class="flex items-center">
+                <div class="flex-shrink-0 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-3 text-zinc-700 dark:text-zinc-300 font-bold text-lg">📁</div>
+                <div class="ml-4 w-0 flex-1">
+                    <dl>
+                        <dt class="text-xs font-medium text-zinc-500 dark:text-zinc-400 truncate uppercase">Total Automações</dt>
+                        <dd class="text-2xl font-bold text-zinc-900 dark:text-white">{{ total_automations }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white dark:bg-zinc-900 overflow-hidden shadow-sm border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 transition-colors">
+            <div class="flex items-center">
+                <div class="flex-shrink-0 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-lg p-3 text-lg font-bold">🟢</div>
+                <div class="ml-4 w-0 flex-1">
+                    <dl>
+                        <dt class="text-xs font-medium text-zinc-500 dark:text-zinc-400 truncate uppercase">Ativas</dt>
+                        <dd class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{{ active_automations }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white dark:bg-zinc-900 overflow-hidden shadow-sm border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 transition-colors">
+            <div class="flex items-center">
+                <div class="flex-shrink-0 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-lg p-3 text-lg font-bold">⚙️</div>
+                <div class="ml-4 w-0 flex-1">
+                    <dl>
+                        <dt class="text-xs font-medium text-zinc-500 dark:text-zinc-400 truncate uppercase">Em Execução</dt>
+                        <dd class="text-2xl font-bold text-blue-600 dark:text-blue-400">{{ running_automations }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white dark:bg-zinc-900 overflow-hidden shadow-sm border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 transition-colors">
+            <div class="flex items-center">
+                <div class="flex-shrink-0 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 rounded-lg p-3 text-lg font-bold">✓</div>
+                <div class="ml-4 w-0 flex-1">
+                    <dl>
+                        <dt class="text-xs font-medium text-zinc-500 dark:text-zinc-400 truncate uppercase">Concluídas</dt>
+                        <dd class="text-2xl font-bold text-zinc-900 dark:text-white">{{ success_executions }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white dark:bg-zinc-900 overflow-hidden shadow-sm border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 transition-colors">
+            <div class="flex items-center">
+                <div class="flex-shrink-0 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-lg p-3 text-lg font-bold">✕</div>
+                <div class="ml-4 w-0 flex-1">
+                    <dl>
+                        <dt class="text-xs font-medium text-zinc-500 dark:text-zinc-400 truncate uppercase">Falhas</dt>
+                        <dd class="text-2xl font-bold text-rose-600 dark:text-rose-400">{{ failed_executions }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabelas de Próximos Agendamentos e Histórico Recente -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <!-- Próximos Agendamentos -->
+        <div class="bg-white dark:bg-zinc-900 shadow-sm border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden transition-colors">
+            <div class="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center">
+                <h3 class="text-base font-semibold text-zinc-900 dark:text-white">⏰ Próximos Agendamentos</h3>
+                <a href="/automations" class="text-xs text-sky-600 dark:text-sky-400 hover:underline font-medium">Ver todas &rarr;</a>
+            </div>
+            <div class="divide-y divide-zinc-200 dark:divide-zinc-800">
+                {% if upcoming_jobs %}
+                    {% for auto in upcoming_jobs %}
+                    <div class="px-6 py-3.5 flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition">
+                        <div>
+                            <a href="/automations/{{ auto.id }}" class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 hover:text-sky-600 dark:hover:text-sky-400">
+                                {{ auto.name }}
+                            </a>
+                            <div class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                Tipo: <span class="uppercase font-medium text-zinc-600 dark:text-zinc-300">{{ auto.trigger_type }}</span>
+                                {% if auto.cron_expression %} | Cron: <code class="bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded text-zinc-700 dark:text-zinc-300">{{ auto.cron_expression }}</code>{% endif %}
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs font-medium text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/50 px-2.5 py-1 rounded-full border border-sky-100 dark:border-sky-900">
+                                {{ auto.next_run_at | localdatetime('%d/%m/%Y %H:%M:%S') if auto.next_run_at else 'Aguardando' }}
+                            </span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="p-8 text-center text-sm text-zinc-400 dark:text-zinc-500">
+                        Nenhuma automação agendada no momento.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Execuções Recentes -->
+        <div class="bg-white dark:bg-zinc-900 shadow-sm border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden transition-colors">
+            <div class="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center">
+                <h3 class="text-base font-semibold text-zinc-900 dark:text-white">📋 Execuções Recentes</h3>
+                <a href="/executions" class="text-xs text-sky-600 dark:text-sky-400 hover:underline font-medium">Histórico completo &rarr;</a>
+            </div>
+            <div class="divide-y divide-zinc-200 dark:divide-zinc-800">
+                {% if recent_executions %}
+                    {% for exec in recent_executions %}
+                    <div class="px-6 py-3.5 flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition">
+                        <div>
+                            <a href="/executions/{{ exec.id }}" class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 hover:text-sky-600 dark:hover:text-sky-400">
+                                {{ exec.automation.name if exec.automation else 'Automação #' ~ exec.automation_id }}
+                            </a>
+                            <div class="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+                                {{ exec.started_at | localdatetime('%d/%m %H:%M:%S') }} &bull; {{ exec.duration_seconds }}s
+                            </div>
+                        </div>
+                        <div>
+                            {% if exec.status == 'SUCCESS' %}
+                                <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">Sucesso</span>
+                            {% elif exec.status == 'FAILED' or exec.status == 'TIMEOUT' %}
+                                <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300">{{ exec.status }}</span>
+                            {% elif exec.status in ['PENDING', 'RUNNING'] %}
+                                <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 animate-pulse">Em execução</span>
+                            {% else %}
+                                <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">{{ exec.status }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="p-8 text-center text-sm text-zinc-400 dark:text-zinc-500">
+                        Nenhuma execução registrada ainda.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

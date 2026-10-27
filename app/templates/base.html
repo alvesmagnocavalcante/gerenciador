@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PyAutomation Manager{% endblock %}</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            700: '#075985',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <script>
+        // Evita flash de tema claro ao carregar
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
+    <!-- HTMX CDN -->
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body class="h-full flex flex-col font-sans bg-zinc-50 text-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 antialiased transition-colors duration-200">
+    <!-- Navbar -->
+    <header class="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-50 transition-colors duration-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex">
+                    <a href="/" class="flex-shrink-0 flex items-center font-bold text-xl text-zinc-900 dark:text-white tracking-tight">
+                        <span class="text-sky-500 mr-2">⚡</span> PyAutomation
+                    </a>
+                    {% if user %}
+                    <nav class="ml-8 flex space-x-6">
+                        <a href="/" class="inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium {% if request.url.path == '/' %}border-sky-500 text-zinc-900 dark:text-white{% else %}border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-700{% endif %}">
+                            Dashboard
+                        </a>
+                        <a href="/automations" class="inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium {% if request.url.path.startswith('/automations') %}border-sky-500 text-zinc-900 dark:text-white{% else %}border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-700{% endif %}">
+                            Automações
+                        </a>
+                        <a href="/executions" class="inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium {% if request.url.path.startswith('/executions') %}border-sky-500 text-zinc-900 dark:text-white{% else %}border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-700{% endif %}">
+                            Histórico de Execuções
+                        </a>
+                    </nav>
+                    {% endif %}
+                </div>
+                <div class="flex items-center space-x-4">
+                    <!-- Botão de Alternância de Tema -->
+                    <button id="theme-toggle" type="button" aria-label="Alternar modo escuro"
+                        class="p-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition">
+                        <span id="theme-toggle-dark-icon" class="text-base" title="Ativar modo escuro">🌙</span>
+                        <span id="theme-toggle-light-icon" class="hidden text-base" title="Ativar modo claro">☀️</span>
+                    </button>
+
+                    {% if user %}
+                    <span class="text-xs text-zinc-500 dark:text-zinc-400">Conectado como <strong class="text-zinc-700 dark:text-zinc-200 font-semibold">{{ user.username }}</strong></span>
+                    <a href="/logout" class="text-xs text-rose-600 dark:text-rose-400 hover:text-rose-800 dark:hover:text-rose-300 font-medium px-2.5 py-1.5 rounded border border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition">
+                        Sair
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 py-4 mt-auto transition-colors duration-200">
+        <div class="max-w-7xl mx-auto px-4 text-center text-xs text-zinc-400 dark:text-zinc-500">
+            PyAutomation Manager &bull; Plataforma Segura e Modular de Automações Python
+        </div>
+    </footer>
+
+    <script>
+        const themeToggleBtn = document.getElementById('theme-toggle');
+        const darkIcon = document.getElementById('theme-toggle-dark-icon');
+        const lightIcon = document.getElementById('theme-toggle-light-icon');
+
+        function updateToggleIcons() {
+            if (document.documentElement.classList.contains('dark')) {
+                darkIcon.classList.add('hidden');
+                lightIcon.classList.remove('hidden');
+            } else {
+                darkIcon.classList.remove('hidden');
+                lightIcon.classList.add('hidden');
+            }
+        }
+
+        updateToggleIcons();
+
+        themeToggleBtn.addEventListener('click', () => {
+            if (document.documentElement.classList.contains('dark')) {
+                document.documentElement.classList.remove('dark');
+                localStorage.theme = 'light';
+            } else {
+                document.documentElement.classList.add('dark');
+                localStorage.theme = 'dark';
+            }
+            updateToggleIcons();
+        });
+    </script>
+</body>
+</html>

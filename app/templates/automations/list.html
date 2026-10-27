@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}Automações - PyAutomation Manager{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-zinc-200 dark:border-zinc-800">
+        <div>
+            <h1 class="text-2xl font-bold text-zinc-900 dark:text-white tracking-tight">Automações Cadastradas</h1>
+            <p class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Gerencie scripts, repositórios GitHub e rotinas agendadas.</p>
+        </div>
+        <div class="mt-4 sm:mt-0">
+            <a href="/automations/new" class="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-sky-600 hover:bg-sky-700 transition">
+                + Nova Automação
+            </a>
+        </div>
+    </div>
+
+    <!-- Div para mensagens dinâmicas de HTMX -->
+    <div id="action-feedback"></div>
+
+    <!-- Tabela de Automações -->
+    <div class="bg-white dark:bg-zinc-900 shadow-sm border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden transition-colors">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-left text-sm">
+                <thead class="bg-zinc-50 dark:bg-zinc-800/60 text-zinc-500 dark:text-zinc-400 font-semibold uppercase text-xs">
+                    <tr>
+                        <th scope="col" class="px-6 py-3.5">Nome</th>
+                        <th scope="col" class="px-6 py-3.5">Origem</th>
+                        <th scope="col" class="px-6 py-3.5">Status</th>
+                        <th scope="col" class="px-6 py-3.5">Última Execução</th>
+                        <th scope="col" class="px-6 py-3.5">Próxima Execução</th>
+                        <th scope="col" class="px-6 py-3.5 text-right">Ações</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800 bg-white dark:bg-zinc-900">
+                    {% if automations %}
+                        {% for auto in automations %}
+                        <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition">
+                            <td class="px-6 py-4">
+                                <a href="/automations/{{ auto.id }}" class="font-semibold text-zinc-900 dark:text-zinc-100 hover:text-sky-600 dark:hover:text-sky-400">
+                                    {{ auto.name }}
+                                </a>
+                                {% if auto.description %}
+                                <p class="text-xs text-zinc-500 dark:text-zinc-400 truncate max-w-xs mt-0.5">{{ auto.description }}</p>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                {% if auto.source_type == 'git' %}
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-300">
+                                        🐙 GitHub ({{ auto.git_branch }})
+                                    </span>
+                                {% elif auto.source_type == 'http' %}
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300">
+                                        🌐 API / HTTP
+                                    </span>
+                                {% else %}
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300">
+                                        💻 Local ({{ auto.entrypoint }})
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                {% if auto.status == 'active' %}
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">
+                                        Ativa
+                                    </span>
+                                {% elif auto.status == 'paused' %}
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
+                                        Pausada
+                                    </span>
+                                {% else %}
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-400">
+                                        Desativada
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-xs text-zinc-600 dark:text-zinc-300">
+                                {% if auto.executions and auto.executions[0] %}
+                                    {% set last = auto.executions[0] %}
+                                    <div>{{ last.started_at | localdatetime('%d/%m/%Y %H:%M') }}</div>
+                                    <div class="mt-0.5">
+                                        {% if last.status == 'SUCCESS' %}
+                                            <span class="text-emerald-600 dark:text-emerald-400 font-semibold">Sucesso ({{ last.duration_seconds }}s)</span>
+                                        {% elif last.status in ['FAILED', 'TIMEOUT'] %}
+                                            <span class="text-rose-600 dark:text-rose-400 font-semibold">{{ last.status }}</span>
+                                        {% elif last.status in ['PENDING', 'RUNNING'] %}
+                                            <span class="text-blue-600 dark:text-blue-400 font-semibold animate-pulse">Executando</span>
+                                        {% else %}
+                                            <span>{{ last.status }}</span>
+                                        {% endif %}
+                                    </div>
+                                {% else %}
+                                    <span class="text-zinc-400 dark:text-zinc-500">Nunca executada</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-xs text-zinc-600 dark:text-zinc-300">
+                                {% if auto.next_run_at and auto.status == 'active' %}
+                                    <span class="font-medium text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/50 px-2 py-0.5 rounded border border-sky-100 dark:border-sky-900">
+                                        {{ auto.next_run_at | localdatetime('%d/%m %H:%M') }}
+                                    </span>
+                                {% else %}
+                                    <span class="text-zinc-400 dark:text-zinc-500">Sem agendamento</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-xs font-medium space-x-2">
+                                <button hx-post="/automations/{{ auto.id }}/run" hx-target="#action-feedback"
+                                    class="inline-flex items-center px-2.5 py-1.5 border border-sky-600 dark:border-sky-500 text-sky-600 dark:text-sky-400 rounded hover:bg-sky-50 dark:hover:bg-sky-950/40 font-semibold transition">
+                                    ▶ Executar
+                                </button>
+                                <form action="/automations/{{ auto.id }}/toggle-status" method="POST" class="inline">
+                                    <button type="submit" class="inline-flex items-center px-2 py-1.5 border border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition">
+                                        {% if auto.status == 'active' %}Pausar{% else %}Retomar{% endif %}
+                                    </button>
+                                </form>
+                                <a href="/automations/{{ auto.id }}" class="inline-flex items-center px-2 py-1.5 border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition">
+                                    Detalhes
+                                </a>
+                                <a href="/automations/{{ auto.id }}/edit" class="inline-flex items-center px-2 py-1.5 border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition">
+                                    Editar
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="6" class="px-6 py-12 text-center text-sm text-zinc-400 dark:text-zinc-500">
+                                Nenhuma automação cadastrada ainda. Clique em "+ Nova Automação" para começar.
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
