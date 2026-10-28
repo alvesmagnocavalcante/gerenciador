@@ -1,3 +1,4 @@
+import html
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
@@ -10,13 +11,21 @@ from sqlalchemy import desc
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import verify_password, sign_session
+from app.core.security import verify_password, sign_session, resolve_safe_path, SESSION_MAX_AGE_SECONDS
 from app.models.user import User
 from app.models.automation import Automation
 from app.models.execution import Execution
 from app.web.auth import get_current_user, get_current_user_optional, COOKIE_NAME
 from app.services.scheduler import sync_automation_job, remove_automation_job
-from app.services.executor import run_automation_job, cancel_execution, get_automation_dir, ensure_venv, rebuild_automation_venv, clean_automation_workspace
+from app.services.executor import (
+    run_automation_job,
+    cancel_execution,
+    get_automation_dir,
+    ensure_venv,
+    rebuild_automation_venv,
+    clean_automation_workspace,
+    delete_automation_files,
+)
 from app.services.git_service import clone_or_update_repo, GitError
 
 logger = logging.getLogger("pyautomation.web")
@@ -76,7 +85,7 @@ def login_post(
         value=session_token,
         httponly=True,
         samesite="lax",
-        max_age=86400 * 7,  # 7 dias
+        max_age=SESSION_MAX_AGE_SECONDS,
     )
     return response
 
@@ -161,6 +170,7 @@ def automations_create(
     max_retries: int = Form(0),
     retry_delay_seconds: int = Form(10),
     cleanup_mode: str = Form("none"),
+    target_worker: str = Form("local"),
     # Git
     git_url: Optional[str] = Form(None),
     git_branch: Optional[str] = Form("main"),
@@ -179,6 +189,20 @@ def automations_create(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # Validar que entrypoint não tente path traversal
+    if source_type in ["local", "git"]:
+        try:
+            resolve_safe_path(settings.AUTOMATIONS_DIR, entrypoint)
+        except ValueError as ve:
+            return templates.TemplateResponse(
+                request=request,
+                name="automations/create.html",
+                context={"user": user, "error": str(ve)},
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+    clean_worker = (target_worker or "local").strip() or "local"
+
     auto = Automation(
         name=name,
         description=description,
@@ -191,6 +215,7 @@ def automations_create(
         max_retries=max_retries,
         retry_delay_seconds=retry_delay_seconds,
         cleanup_mode=cleanup_mode,
+        target_worker=clean_worker,
         git_url=git_url,
         git_branch=git_branch,
         git_token=git_token,
@@ -206,12 +231,13 @@ def automations_create(
     db.commit()
     db.refresh(auto)
 
-    # Se for código local fornecido no cadastro, gravar o arquivo
+    # Se for código local fornecido no cadastro, gravar o arquivo de forma segura
     auto_dir = get_automation_dir(auto.id)
     if source_type == "local" and local_script_content:
-        entry_file = auto_dir / auto.entrypoint
+        entry_file = resolve_safe_path(auto_dir, auto.entrypoint)
+        entry_file.parent.mkdir(parents=True, exist_ok=True)
         entry_file.write_text(local_script_content, encoding="utf-8")
-    elif source_type == "git" and git_url:
+    elif source_type == "git" and git_url and clean_worker.lower() == "local":
         try:
             repo_dir = auto_dir / "repo"
             commit_sha = clone_or_update_repo(repo_dir, git_url, git_branch or "main", git_token)
@@ -219,10 +245,9 @@ def automations_create(
             db.commit()
             # Constrói a venv e instala dependências de pyproject.toml ou requirements.txt
             ensure_venv(auto.id, repo_dir)
-        except GitError as e:
-            # Registra aviso mas não quebra a criação
+        except GitError:
             pass
-        except Exception as e:
+        except Exception:
             pass
 
     # Sincronizar com APScheduler
@@ -250,16 +275,16 @@ def automations_detail(
 
     # Ler conteúdo do script se for local
     code_content = None
+    auto_dir = get_automation_dir(auto.id)
     if auto.source_type == "local":
-        file_path = get_automation_dir(auto.id) / auto.entrypoint
-        if file_path.exists():
-            try:
+        try:
+            file_path = resolve_safe_path(auto_dir, auto.entrypoint)
+            if file_path.exists():
                 code_content = file_path.read_text(encoding="utf-8")
-            except Exception:
-                code_content = "[Não foi possível ler o arquivo]"
+        except Exception:
+            code_content = "[Não foi possível ler o arquivo]"
 
     # Verificar se existe arquivo .env.example no repositório
-    auto_dir = get_automation_dir(auto.id)
     working_dir = auto_dir / "repo" if auto.source_type == "git" else auto_dir
     env_example_content = None
     for example_candidate in [working_dir / ".env.example", auto_dir / ".env.example"]:
@@ -295,12 +320,12 @@ def automations_edit(
 
     local_script_content = None
     if auto.source_type == "local":
-        file_path = get_automation_dir(auto.id) / auto.entrypoint
-        if file_path.exists():
-            try:
+        try:
+            file_path = resolve_safe_path(get_automation_dir(auto.id), auto.entrypoint)
+            if file_path.exists():
                 local_script_content = file_path.read_text(encoding="utf-8")
-            except Exception:
-                pass
+        except Exception:
+            pass
 
     return templates.TemplateResponse(
         request=request,
@@ -327,6 +352,7 @@ def automations_update(
     max_retries: int = Form(0),
     retry_delay_seconds: int = Form(10),
     cleanup_mode: str = Form("none"),
+    target_worker: str = Form("local"),
     # Git
     git_url: Optional[str] = Form(None),
     git_branch: Optional[str] = Form("main"),
@@ -349,6 +375,25 @@ def automations_update(
     if not auto:
         raise HTTPException(status_code=404, detail="Automação não encontrada")
 
+    auto_dir = get_automation_dir(auto.id)
+    if source_type in ["local", "git"]:
+        try:
+            resolve_safe_path(auto_dir, entrypoint)
+        except ValueError as ve:
+            return templates.TemplateResponse(
+                request=request,
+                name="automations/edit.html",
+                context={
+                    "user": user,
+                    "automation": auto,
+                    "local_script_content": local_script_content,
+                    "error": str(ve),
+                },
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+    clean_worker = (target_worker or "local").strip() or "local"
+
     auto.name = name
     auto.description = description
     auto.source_type = source_type
@@ -359,6 +404,7 @@ def automations_update(
     auto.max_retries = max_retries
     auto.retry_delay_seconds = retry_delay_seconds
     auto.cleanup_mode = cleanup_mode
+    auto.target_worker = clean_worker
     auto.git_url = git_url
     auto.git_branch = git_branch
     if git_token:
@@ -371,11 +417,11 @@ def automations_update(
     auto.interval_seconds = interval_seconds
     auto.cron_expression = cron_expression
 
-    auto_dir = get_automation_dir(auto.id)
     if source_type == "local" and local_script_content is not None:
-        entry_file = auto_dir / auto.entrypoint
+        entry_file = resolve_safe_path(auto_dir, auto.entrypoint)
+        entry_file.parent.mkdir(parents=True, exist_ok=True)
         entry_file.write_text(local_script_content, encoding="utf-8")
-    elif source_type == "git" and auto.git_url:
+    elif source_type == "git" and auto.git_url and clean_worker.lower() == "local":
         try:
             repo_dir = auto_dir / "repo"
             commit_sha = clone_or_update_repo(repo_dir, auto.git_url, auto.git_branch or "main", auto.git_token)
@@ -389,6 +435,7 @@ def automations_update(
         try:
             from app.services.executor import parse_env_vars
             working_dir = auto_dir / "repo" if auto.source_type == "git" else auto_dir
+            working_dir.mkdir(parents=True, exist_ok=True)
             parsed = parse_env_vars(auto.env_vars)
             env_file = working_dir / ".env"
             env_lines = [f"{k}={v}" for k, v in parsed.items()]
@@ -420,12 +467,20 @@ def automations_trigger_run(
     execution_id = run_automation_job(auto.id, trigger_type="manual")
 
     if "HX-Request" in request.headers:
-        # Retorno simplificado para HTMX
+        if execution_id:
+            worker_info = f" (enfileirada para máquina '{html.escape(auto.target_worker)}')" if auto.target_worker and auto.target_worker.lower() != "local" else ""
+            return HTMLResponse(
+                content=f"""
+                <div class="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300 rounded-lg text-sm flex justify-between items-center mb-4">
+                    <span>Disparo iniciado com sucesso! Execução #{int(execution_id)}{worker_info}.</span>
+                    <a href="/executions/{int(execution_id)}" class="underline font-semibold ml-2">Ver Logs</a>
+                </div>
+                """
+            )
         return HTMLResponse(
-            content=f"""
-            <div class="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300 rounded-lg text-sm flex justify-between items-center mb-4">
-                <span>Disparo iniciado com sucesso! Execução #{execution_id}.</span>
-                <a href="/executions/{execution_id}" class="underline font-semibold ml-2">Ver Logs</a>
+            content="""
+            <div class="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-300 rounded-lg text-sm mb-4">
+                <span>Não foi possível iniciar: a automação já está em execução ou está desativada.</span>
             </div>
             """
         )
@@ -464,7 +519,7 @@ def automations_sync_git(
 
     if "HX-Request" in request.headers:
         bg_color = "bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900 text-rose-800 dark:text-rose-300" if is_error else "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300"
-        return HTMLResponse(content=f'<div class="p-3 {bg_color} border rounded-lg text-sm mb-4">{msg}</div>')
+        return HTMLResponse(content=f'<div class="p-3 {bg_color} border rounded-lg text-sm mb-4">{html.escape(msg)}</div>')
 
     return RedirectResponse(url=f"/automations/{auto.id}", status_code=status.HTTP_302_FOUND)
 
@@ -483,7 +538,7 @@ def automations_rebuild_venv(
 
     if "HX-Request" in request.headers:
         bg_color = "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300" if success else "bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900 text-rose-800 dark:text-rose-300"
-        return HTMLResponse(content=f'<div class="p-3 {bg_color} border rounded-lg text-sm mb-4">{message}</div>')
+        return HTMLResponse(content=f'<div class="p-3 {bg_color} border rounded-lg text-sm mb-4">{html.escape(message)}</div>')
 
     return RedirectResponse(url=f"/automations/{auto.id}", status_code=status.HTTP_302_FOUND)
 
@@ -502,7 +557,7 @@ def automations_clean_workspace(
 
     if "HX-Request" in request.headers:
         bg_color = "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300" if success else "bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900 text-rose-800 dark:text-rose-300"
-        return HTMLResponse(content=f'<div class="p-3 {bg_color} border rounded-lg text-sm mb-4">{message}</div>')
+        return HTMLResponse(content=f'<div class="p-3 {bg_color} border rounded-lg text-sm mb-4">{html.escape(message)}</div>')
 
     return RedirectResponse(url=f"/automations/{auto.id}", status_code=status.HTTP_302_FOUND)
 
@@ -526,6 +581,7 @@ def automations_save_env(
         from app.services.executor import parse_env_vars
         auto_dir = get_automation_dir(auto.id)
         working_dir = auto_dir / "repo" if auto.source_type == "git" else auto_dir
+        working_dir.mkdir(parents=True, exist_ok=True)
         parsed = parse_env_vars(auto.env_vars)
         env_file = working_dir / ".env"
         env_lines = [f"{k}={v}" for k, v in parsed.items()]
@@ -537,7 +593,7 @@ def automations_save_env(
 
     if "HX-Request" in request.headers:
         return HTMLResponse(
-            content=f'<div class="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300 rounded-lg text-sm mb-4">{msg}</div>'
+            content=f'<div class="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300 rounded-lg text-sm mb-4">{html.escape(msg)}</div>'
         )
 
     return RedirectResponse(url=f"/automations/{auto.id}", status_code=status.HTTP_302_FOUND)
@@ -574,6 +630,7 @@ def automations_delete(
     auto = db.query(Automation).filter(Automation.id == automation_id).first()
     if auto:
         remove_automation_job(auto.id)
+        delete_automation_files(auto.id)
         db.delete(auto)
         db.commit()
     return RedirectResponse(url="/automations", status_code=status.HTTP_302_FOUND)
@@ -614,6 +671,7 @@ def executions_detail(
 def executions_get_logs(
     execution_id: int,
     request: Request,
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     execution = db.query(Execution).filter(Execution.id == execution_id).first()
@@ -621,7 +679,7 @@ def executions_get_logs(
         return HTMLResponse("<p>Execução não encontrada.</p>")
 
     is_running = execution.status in ["PENDING", "RUNNING"]
-    poll_attr = 'hx-get="/executions/' + str(execution_id) + '/logs" hx-trigger="every 2s" hx-swap="outerHTML"' if is_running else ''
+    poll_attr = 'hx-get="/executions/' + str(int(execution_id)) + '/logs" hx-trigger="every 2s" hx-swap="outerHTML"' if is_running else ''
 
     status_badge = {
         "SUCCESS": '<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">Sucesso</span>',
@@ -630,27 +688,28 @@ def executions_get_logs(
         "RUNNING": '<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 animate-pulse">Executando</span>',
         "PENDING": '<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-300">Pendente</span>',
         "CANCELLED": '<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400">Cancelado</span>',
-    }.get(execution.status, execution.status)
+    }.get(execution.status, html.escape(str(execution.status)))
 
     duration_text = f"{execution.duration_seconds}s" if execution.duration_seconds is not None else "-"
-    log_content = execution.logs if execution.logs else "(Nenhum log gerado ainda)"
+    raw_logs = execution.logs if execution.logs else "(Nenhum log gerado ainda)"
+    safe_log_content = html.escape(raw_logs)
 
-    html = f"""
+    html_out = f"""
     <div id="execution-logs-container" {poll_attr}>
         <div class="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800 mb-3">
             <div class="flex items-center space-x-3">
                 <span class="text-sm font-medium text-zinc-600 dark:text-zinc-400">Status atual:</span>
                 {status_badge}
-                <span class="text-xs text-zinc-500 dark:text-zinc-400">Duração: {duration_text}</span>
+                <span class="text-xs text-zinc-500 dark:text-zinc-400">Duração: {html.escape(duration_text)}</span>
             </div>
             <div>
-                {f'<button hx-post="/executions/{execution.id}/cancel" hx-target="#execution-logs-container" class="px-3 py-1 bg-rose-600 text-white rounded text-xs hover:bg-rose-700 transition">Cancelar Execução</button>' if is_running else ''}
+                {f'<button hx-post="/executions/{int(execution.id)}/cancel" hx-target="#execution-logs-container" class="px-3 py-1 bg-rose-600 text-white rounded text-xs hover:bg-rose-700 transition">Cancelar Execução</button>' if is_running else ''}
             </div>
         </div>
-        <pre class="bg-zinc-950 border border-zinc-800 text-zinc-100 font-mono text-xs p-4 rounded-lg overflow-x-auto whitespace-pre-wrap leading-relaxed max-h-[600px] select-text">{log_content}</pre>
+        <pre class="bg-zinc-950 border border-zinc-800 text-zinc-100 font-mono text-xs p-4 rounded-lg overflow-x-auto whitespace-pre-wrap leading-relaxed max-h-[600px] select-text">{safe_log_content}</pre>
     </div>
     """
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=html_out)
 
 @router.post("/executions/{execution_id}/cancel")
 def executions_cancel(
@@ -664,12 +723,5 @@ def executions_cancel(
 
     if execution.status in ["PENDING", "RUNNING"]:
         cancel_execution(execution_id)
-        execution.status = "CANCELLED"
-        execution.error_message = "Execução cancelada pelo usuário."
-        execution.finished_at = datetime.now(timezone.utc)
-        if execution.started_at:
-            execution.duration_seconds = round((execution.finished_at - execution.started_at).total_seconds(), 2)
-        execution.logs += "\n[EXECUÇÃO CANCELADA PELO USUÁRIO]"
-        db.commit()
 
     return RedirectResponse(url=f"/executions/{execution_id}", status_code=status.HTTP_302_FOUND)

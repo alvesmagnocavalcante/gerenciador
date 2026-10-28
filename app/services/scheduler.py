@@ -5,6 +5,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.events import (
+    EVENT_JOB_EXECUTED,
+    EVENT_JOB_ERROR,
+    EVENT_JOB_MISSED,
+)
 
 from app.core.config import settings
 from app.core.database import SessionLocal, engine
@@ -19,8 +24,26 @@ jobstores = {
 scheduler = BackgroundScheduler(jobstores=jobstores, timezone=settings.TIMEZONE)
 
 def _job_listener(event):
-    """Atualiza a coluna next_run_at no banco de dados quando um agendamento é disparado ou alterado."""
-    pass
+    """Atualiza a coluna next_run_at no banco de dados após a execução de um agendamento."""
+    job_id = getattr(event, "job_id", None)
+    if not job_id or not job_id.startswith("auto_job_"):
+        return
+    try:
+        automation_id = int(job_id.replace("auto_job_", ""))
+        job = scheduler.get_job(job_id)
+        next_run = job.next_run_time if job else None
+        with SessionLocal() as db:
+            auto = db.query(Automation).filter(Automation.id == automation_id).first()
+            if auto:
+                auto.next_run_at = next_run
+                db.commit()
+    except Exception as e:
+        logger.debug(f"Aviso ao atualizar next_run_at no listener para {job_id}: {e}")
+
+scheduler.add_listener(
+    _job_listener,
+    EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MISSED,
+)
 
 def start_scheduler():
     """Inicia o agendador se ainda não estiver em execução."""

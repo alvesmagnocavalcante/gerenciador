@@ -1,10 +1,12 @@
 import time
 from pathlib import Path
-from app.core.security import sanitize_output
+from app.core.security import sanitize_output, resolve_safe_path
 from app.services.executor import (
     run_automation_job,
     cancel_execution,
     get_automation_dir,
+    cleanup_orphaned_executions,
+    delete_automation_files,
     _active_processes,
 )
 from app.models.automation import Automation
@@ -152,6 +154,8 @@ dependencies = [
 
     assert exec_record.status == "SUCCESS"
     assert "MARKUPSAFE_INSTALLED" in exec_record.logs
+    # Verifica que o arquivo de cache de hash das dependências foi criado
+    assert (auto_dir / ".venv" / ".deps_hash").is_file()
 
 def test_parse_and_inject_env_vars(db_session):
     from app.services.executor import parse_env_vars
@@ -283,8 +287,100 @@ def test_normalize_git_url():
     assert normalize_git_url("https://token@github.com/user/repo") == "github.com/user/repo"
     assert normalize_git_url("http://github.com/user/repo/") == "github.com/user/repo"
 
+def test_path_traversal_blocked_local(db_session):
+    auto = Automation(
+        name="Teste Path Traversal Local",
+        source_type="local",
+        status="active",
+        entrypoint="../outside.py",
+        timeout_seconds=5,
+    )
+    db_session.add(auto)
+    db_session.commit()
+    db_session.refresh(auto)
 
+    exec_id = run_automation_job(auto.id, trigger_type="manual")
+    assert exec_id is not None
 
+    for _ in range(30):
+        time.sleep(0.1)
+        exec_record = db_session.query(Execution).filter(Execution.id == exec_id).first()
+        db_session.refresh(exec_record)
+        if exec_record.status not in ["PENDING", "RUNNING"]:
+            break
 
+    assert exec_record.status == "FAILED"
+    assert "Path traversal detectado" in exec_record.error_message
 
+def test_cancel_execution_prevents_retry_and_keeps_cancelled_status(db_session):
+    auto = Automation(
+        name="Teste Cancelamento Sem Retry",
+        source_type="local",
+        status="active",
+        entrypoint="long_job.py",
+        timeout_seconds=20,
+        max_retries=2,
+        retry_delay_seconds=1,
+    )
+    db_session.add(auto)
+    db_session.commit()
+    db_session.refresh(auto)
 
+    auto_dir = get_automation_dir(auto.id)
+    (auto_dir / "long_job.py").write_text("import time\nprint('STARTING_LONG_JOB', flush=True)\ntime.sleep(10)\n", encoding="utf-8")
+
+    exec_id = run_automation_job(auto.id, trigger_type="manual")
+    assert exec_id is not None
+
+    # Aguardar processo iniciar de fato
+    for _ in range(50):
+        time.sleep(0.2)
+        exec_record = db_session.query(Execution).filter(Execution.id == exec_id).first()
+        db_session.refresh(exec_record)
+        if exec_record.status == "RUNNING" and exec_record.process_pid is not None:
+            break
+
+    cancelled = cancel_execution(exec_id)
+    assert cancelled is True
+
+    # Aguardar a thread encerrar e verificar que continua CANCELLED (e não FAILED ou em retry)
+    time.sleep(1.0)
+    db_session.refresh(exec_record)
+    assert exec_record.status == "CANCELLED"
+    assert exec_record.retry_count == 0
+    assert "[EXECUÇÃO CANCELADA PELO USUÁRIO]" in exec_record.logs
+
+def test_cleanup_orphaned_executions_and_delete_files(db_session):
+    auto = Automation(
+        name="Teste Órfãs e Exclusão",
+        source_type="local",
+        status="active",
+        entrypoint="main.py",
+    )
+    db_session.add(auto)
+    db_session.commit()
+    db_session.refresh(auto)
+
+    auto_dir = get_automation_dir(auto.id)
+    (auto_dir / "main.py").write_text("print(1)\n", encoding="utf-8")
+
+    orphan = Execution(
+        automation_id=auto.id,
+        trigger_type="scheduled",
+        status="RUNNING",
+        logs="Iniciando antes de queda...",
+    )
+    db_session.add(orphan)
+    db_session.commit()
+    db_session.refresh(orphan)
+
+    cleaned = cleanup_orphaned_executions()
+    assert cleaned >= 1
+
+    db_session.refresh(orphan)
+    assert orphan.status == "FAILED"
+    assert "reinicialização" in orphan.error_message
+
+    assert auto_dir.exists()
+    delete_automation_files(auto.id)
+    assert not auto_dir.exists()

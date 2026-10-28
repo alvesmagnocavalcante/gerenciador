@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.core.database import init_db
+from app.services.executor import cleanup_orphaned_executions
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.web.routes import router as web_router
 from app.api.routes import router as api_router
@@ -21,6 +22,7 @@ logger = logging.getLogger("pyautomation")
 async def lifespan(app: FastAPI):
     logger.info("Inicializando PyAutomation Manager...")
     init_db()
+    cleanup_orphaned_executions()
     if settings.RUN_SCHEDULER_IN_WEB:
         start_scheduler()
     yield

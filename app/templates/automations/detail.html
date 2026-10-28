@@ -145,18 +145,18 @@
 
         <!-- Coluna 3: Limites & Parâmetros -->
         <div class="bg-white dark:bg-zinc-900 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-3 transition-colors">
-            <h3 class="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Execução & Tolerância</h3>
+            <h3 class="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Execução & Máquina Alvo</h3>
+            <div class="text-sm">
+                <span class="text-zinc-500 dark:text-zinc-400">Máquina (Worker):</span>
+                <code class="bg-zinc-100 dark:bg-zinc-800 text-sky-600 dark:text-sky-400 px-1.5 py-0.5 rounded text-xs font-semibold ml-1">{{ automation.target_worker or 'local' }}</code>
+            </div>
             <div class="text-sm">
                 <span class="text-zinc-500 dark:text-zinc-400">Timeout:</span>
                 <span class="font-semibold text-zinc-800 dark:text-zinc-200 ml-1">{{ automation.timeout_seconds }}s</span>
             </div>
             <div class="text-sm">
                 <span class="text-zinc-500 dark:text-zinc-400">Tentativas (Retries):</span>
-                <span class="font-semibold text-zinc-800 dark:text-zinc-200 ml-1">{{ automation.max_retries }}</span>
-            </div>
-            <div class="text-sm">
-                <span class="text-zinc-500 dark:text-zinc-400">Delay entre retries:</span>
-                <span class="font-semibold text-zinc-800 dark:text-zinc-200 ml-1">{{ automation.retry_delay_seconds }}s</span>
+                <span class="font-semibold text-zinc-800 dark:text-zinc-200 ml-1">{{ automation.max_retries }} (delay: {{ automation.retry_delay_seconds }}s)</span>
             </div>
         </div>
     </div>

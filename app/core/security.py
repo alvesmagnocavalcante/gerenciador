@@ -1,9 +1,13 @@
 import hmac
 import hashlib
 import secrets
+import time
 import re
+from pathlib import Path
 from typing import Optional
 from app.core.config import settings
+
+SESSION_MAX_AGE_SECONDS = 86400 * 7  # 7 dias
 
 def hash_password(password: str) -> str:
     """Gera hash PBKDF2-HMAC-SHA256 seguro com salt aleatório."""
@@ -32,31 +36,58 @@ def verify_password(stored_password: str, provided_password: str) -> bool:
     except Exception:
         return False
 
-def sign_session(username: str) -> str:
-    """Cria uma assinatura HMAC para a sessão do usuário."""
+def sign_session(username: str, timestamp: Optional[int] = None) -> str:
+    """Cria uma assinatura HMAC com timestamp para a sessão do usuário."""
+    ts = int(timestamp if timestamp is not None else time.time())
+    payload = f"{username}:{ts}"
     signature = hmac.new(
         settings.SECRET_KEY.encode("utf-8"),
-        username.encode("utf-8"),
+        payload.encode("utf-8"),
         hashlib.sha256
     ).hexdigest()
-    return f"{username}:{signature}"
+    return f"{payload}:{signature}"
 
-def verify_session(token: Optional[str]) -> Optional[str]:
-    """Verifica e extrai o username da sessão se a assinatura for válida."""
+def verify_session(token: Optional[str], max_age: int = SESSION_MAX_AGE_SECONDS) -> Optional[str]:
+    """Verifica assinatura e expiração do token de sessão e extrai o username."""
     if not token or ":" not in token:
         return None
     try:
-        username, signature = token.split(":", 1)
-        expected = hmac.new(
-            settings.SECRET_KEY.encode("utf-8"),
-            username.encode("utf-8"),
-            hashlib.sha256
-        ).hexdigest()
-        if hmac.compare_digest(signature, expected):
-            return username
+        parts = token.split(":")
+        if len(parts) == 3:
+            username, ts_str, signature = parts
+            ts = int(ts_str)
+            if max_age > 0 and (time.time() - ts) > max_age:
+                return None
+            payload = f"{username}:{ts_str}"
+            expected = hmac.new(
+                settings.SECRET_KEY.encode("utf-8"),
+                payload.encode("utf-8"),
+                hashlib.sha256
+            ).hexdigest()
+            if hmac.compare_digest(signature, expected):
+                return username
+        elif len(parts) == 2:
+            username, signature = parts
+            expected = hmac.new(
+                settings.SECRET_KEY.encode("utf-8"),
+                username.encode("utf-8"),
+                hashlib.sha256
+            ).hexdigest()
+            if hmac.compare_digest(signature, expected):
+                return username
     except Exception:
         return None
     return None
+
+def resolve_safe_path(base_dir: Path, relative_path: str) -> Path:
+    """Resolve um caminho relativo garantindo que permaneça estritamente dentro de base_dir."""
+    if not relative_path or not relative_path.strip():
+        raise ValueError("Caminho de arquivo vazio ou inválido.")
+    base_resolved = base_dir.resolve()
+    target_resolved = (base_resolved / relative_path).resolve()
+    if not target_resolved.is_relative_to(base_resolved) or target_resolved == base_resolved:
+        raise ValueError("Path traversal detectado: o arquivo deve estar dentro do diretório da automação.")
+    return target_resolved
 
 # Máscaras de segurança para logs
 SENSITIVE_PATTERNS = [

@@ -25,11 +25,12 @@ class Automation(Base):
     # Execução
     entrypoint = Column(String(255), default="main.py", nullable=False)
     arguments = Column(String(500), nullable=True)
-    env_vars = Column(Text, nullable=True)  # JSON formatado com variáveis
+    env_vars = Column(Text, nullable=True)  # Formato .env ou JSON com variáveis
     timeout_seconds = Column(Integer, default=3600, nullable=False)
     max_retries = Column(Integer, default=0, nullable=False)
     retry_delay_seconds = Column(Integer, default=10, nullable=False)
     cleanup_mode = Column(String(30), default="none", nullable=False)  # 'none', 'delete_git', 'delete_repo'
+    target_worker = Column(String(100), default="local", nullable=False)  # 'local' ou nome da máquina remota
 
     # HTTP Trigger
     http_url = Column(String(500), nullable=True)

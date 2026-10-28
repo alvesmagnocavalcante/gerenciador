@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -8,6 +9,7 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str = "PyAutomation Manager"
     SECRET_KEY: str = "super-secret-key-change-in-production-1234567890"
+    API_KEY: Optional[str] = None
     DEBUG: bool = False
 
     # Caminhos

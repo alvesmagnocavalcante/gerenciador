@@ -2,6 +2,8 @@ import sys
 import os
 import time
 import json
+import signal
+import hashlib
 import logging
 import shutil
 import threading
@@ -13,7 +15,7 @@ import httpx
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.core.security import sanitize_output
+from app.core.security import sanitize_output, resolve_safe_path
 from app.models.automation import Automation
 from app.models.execution import Execution
 
@@ -22,6 +24,7 @@ logger = logging.getLogger("pyautomation.executor")
 # Controle de processos em execução: {execution_id: subprocess.Popen}
 _active_processes: Dict[int, subprocess.Popen] = {}
 _running_automations: set[int] = set()
+_cancelled_executions: set[int] = set()
 _lock = threading.Lock()
 _semaphore = threading.Semaphore(settings.MAX_CONCURRENT_EXECUTIONS)
 
@@ -57,6 +60,46 @@ def safe_rmtree(path: Path | str) -> None:
         shutil.rmtree(p, onerror=_handle_readonly)
     except Exception:
         shutil.rmtree(p, ignore_errors=True)
+
+def delete_automation_files(automation_id: int) -> None:
+    """Cancela execuções ativas da automação e remove seu diretório físico do disco."""
+    with SessionLocal() as db:
+        active_execs = db.query(Execution).filter(
+            Execution.automation_id == automation_id,
+            Execution.status.in_(["PENDING", "RUNNING"])
+        ).all()
+        for ex in active_execs:
+            cancel_execution(ex.id)
+
+    auto_path = settings.AUTOMATIONS_DIR / f"auto_{automation_id}"
+    if auto_path.exists():
+        safe_rmtree(auto_path)
+
+def cleanup_orphaned_executions() -> int:
+    """Marca execuções PENDING/RUNNING órfãs como FAILED ao iniciar o servidor/worker."""
+    count = 0
+    now = datetime.now(timezone.utc)
+    with SessionLocal() as db:
+        orphans = db.query(Execution).filter(Execution.status.in_(["PENDING", "RUNNING"])).all()
+        for ex in orphans:
+            with _lock:
+                if ex.id in _active_processes or ex.automation_id in _running_automations:
+                    continue
+            ex.status = "FAILED"
+            ex.finished_at = now
+            if ex.started_at:
+                started = ex.started_at if ex.started_at.tzinfo else ex.started_at.replace(tzinfo=timezone.utc)
+                ex.duration_seconds = round((now - started).total_seconds(), 2)
+            ex.error_message = "Execução interrompida por reinicialização do servidor."
+            if ex.logs:
+                ex.logs += "\n[EXECUÇÃO INTERROMPIDA POR REINICIALIZAÇÃO DO SERVIDOR]"
+            else:
+                ex.logs = "[EXECUÇÃO INTERROMPIDA POR REINICIALIZAÇÃO DO SERVIDOR]"
+            count += 1
+        if count > 0:
+            db.commit()
+            logger.info(f"{count} execução(ões) órfã(s) marcada(s) como FAILED na inicialização.")
+    return count
 
 def parse_env_vars(text: Optional[str]) -> Dict[str, str]:
     """Interpreta variáveis de ambiente tanto no formato .env padrão (CHAVE=VALOR) quanto em JSON."""
@@ -109,6 +152,18 @@ def find_dependency_files(working_dir: Path, auto_dir: Path) -> Dict[str, Path]:
 
     return files
 
+def _compute_deps_hash(dep_files: Dict[str, Path]) -> str:
+    """Calcula um hash SHA-256 dos arquivos de dependências para evitar reinstalações redundantes."""
+    hasher = hashlib.sha256()
+    for key in sorted(dep_files.keys()):
+        path = dep_files[key]
+        try:
+            hasher.update(key.encode("utf-8"))
+            hasher.update(path.read_bytes())
+        except Exception:
+            pass
+    return hasher.hexdigest()
+
 def ensure_venv(automation_id: int, working_dir: Path, force_reinstall: bool = False) -> Path:
     """Garante que o ambiente virtual (venv) da automação exista e tenha as dependências instaladas via uv."""
     venv_dir = get_venv_dir(automation_id)
@@ -119,15 +174,31 @@ def ensure_venv(automation_id: int, working_dir: Path, force_reinstall: bool = F
         logger.info(f"Removendo venv existente da automação {automation_id} para reconstrução limpa...")
         safe_rmtree(venv_dir)
 
+    venv_created = False
     if not python_bin.exists():
         logger.info(f"Criando venv para automação {automation_id} via uv...")
         cmd = ["uv", "venv", str(venv_dir)]
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if proc.returncode != 0:
             raise RuntimeError(f"Erro ao criar virtualenv com uv: {proc.stderr}")
+        venv_created = True
 
-    # Localizar e instalar arquivos de dependências
+    # Localizar arquivos de dependências
     dep_files = find_dependency_files(working_dir, auto_dir)
+    if not dep_files:
+        return python_bin
+
+    hash_file = venv_dir / ".deps_hash"
+    current_hash = _compute_deps_hash(dep_files)
+
+    if not force_reinstall and not venv_created and hash_file.is_file():
+        try:
+            if hash_file.read_text(encoding="utf-8").strip() == current_hash:
+                return python_bin
+        except Exception:
+            pass
+
+    all_ok = True
 
     # 1. Instalar a partir de pyproject.toml
     if "pyproject" in dep_files:
@@ -136,6 +207,7 @@ def ensure_venv(automation_id: int, working_dir: Path, force_reinstall: bool = F
         cmd = ["uv", "pip", "install", "--python", str(python_bin), "-r", str(pyproj_path)]
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if proc.returncode != 0:
+            all_ok = False
             logger.warning(f"Aviso ao instalar dependências de pyproject.toml: {proc.stderr}")
 
     # 2. Instalar a partir de requirements.txt
@@ -145,7 +217,14 @@ def ensure_venv(automation_id: int, working_dir: Path, force_reinstall: bool = F
         cmd = ["uv", "pip", "install", "--python", str(python_bin), "-r", str(req_path)]
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if proc.returncode != 0:
+            all_ok = False
             logger.warning(f"Aviso ao instalar dependências de requirements.txt: {proc.stderr}")
+
+    if all_ok:
+        try:
+            hash_file.write_text(current_hash, encoding="utf-8")
+        except Exception:
+            pass
 
     return python_bin
 
@@ -178,21 +257,59 @@ def clean_automation_workspace(automation_id: int) -> Tuple[bool, str]:
     return True, "Nenhum arquivo de repositório pendente no disco."
 
 def cancel_execution(execution_id: int) -> bool:
-    """Cancela um processo em execução imediatamente."""
+    """Cancela um processo em execução imediatamente (em memória, via PID ou sinalizando worker remoto)."""
+    killed = False
     with _lock:
+        _cancelled_executions.add(execution_id)
         proc = _active_processes.get(execution_id)
         if proc:
             try:
                 proc.terminate()
-                time.sleep(0.5)
+                time.sleep(0.3)
                 if proc.poll() is None:
                     proc.kill()
                 logger.info(f"Processo da execução {execution_id} encerrado.")
-                return True
+                killed = True
             except Exception as e:
                 logger.error(f"Erro ao matar processo da execução {execution_id}: {e}")
-                return False
-    return False
+
+    with SessionLocal() as db:
+        execution = db.query(Execution).filter(Execution.id == execution_id).first()
+        if not execution:
+            return killed
+
+        is_remote = bool(
+            execution.automation
+            and execution.automation.target_worker
+            and execution.automation.target_worker.strip().lower() != "local"
+        )
+
+        # Caso o processo esteja rodando em um worker separado na mesma máquina, encerrar via PID
+        if not killed and not is_remote and execution.status in ["PENDING", "RUNNING"] and execution.process_pid:
+            try:
+                os.kill(execution.process_pid, signal.SIGTERM)
+                killed = True
+                logger.info(f"Processo PID {execution.process_pid} da execução {execution_id} encerrado via sinal.")
+            except Exception as e:
+                logger.warning(f"Não foi possível encerrar PID {execution.process_pid}: {e}")
+
+        if execution.status in ["PENDING", "RUNNING"]:
+            now = datetime.now(timezone.utc)
+            execution.status = "CANCELLED"
+            execution.error_message = "Execução cancelada pelo usuário."
+            execution.finished_at = now
+            if execution.started_at:
+                started = execution.started_at if execution.started_at.tzinfo else execution.started_at.replace(tzinfo=timezone.utc)
+                execution.duration_seconds = round((now - started).total_seconds(), 2)
+            cancel_msg = "[EXECUÇÃO CANCELADA PELO USUÁRIO]"
+            if not execution.logs:
+                execution.logs = cancel_msg
+            elif cancel_msg not in execution.logs:
+                execution.logs += f"\n{cancel_msg}"
+            db.commit()
+            killed = True
+
+    return killed
 
 def execute_http_automation(automation: Automation, execution: Execution, db) -> None:
     """Executa automação do tipo HTTP."""
@@ -244,12 +361,25 @@ def run_automation_job(automation_id: int, trigger_type: str = "scheduled") -> O
             logger.warning(f"Automação {automation_id} está desativada. Execução ignorada.")
             return None
 
-        # Verificar se já está em execução para evitar concorrência da mesma automação
+        target_worker = (getattr(automation, "target_worker", None) or "local").strip()
+        is_remote = target_worker.lower() != "local" and target_worker != ""
+
+        # Verificar se já está em execução (em memória ou em outro processo/agente via banco)
         with _lock:
-            if automation_id in _running_automations:
+            if not is_remote and automation_id in _running_automations:
                 logger.warning(f"Automação {automation_id} já está em execução. Nova execução impedida.")
                 return None
-            _running_automations.add(automation_id)
+            active_in_db = db.query(Execution).filter(
+                Execution.automation_id == automation_id,
+                Execution.status.in_(["PENDING", "RUNNING"])
+            ).first()
+            if active_in_db:
+                logger.warning(f"Automação {automation_id} possui execução ativa no banco (#{active_in_db.id}). Nova execução impedida.")
+                return None
+            if not is_remote:
+                _running_automations.add(automation_id)
+
+        initial_logs = f"[AGUARDANDO AGENTE REMOTO: '{target_worker}']" if is_remote else ""
 
         # Criar registro de execução
         execution = Execution(
@@ -257,13 +387,18 @@ def run_automation_job(automation_id: int, trigger_type: str = "scheduled") -> O
             trigger_type=trigger_type,
             status="PENDING",
             started_at=datetime.now(timezone.utc),
+            logs=initial_logs,
         )
         db.add(execution)
         db.commit()
         db.refresh(execution)
         execution_id = execution.id
 
-    # Iniciar execução em thread separada
+    if is_remote:
+        logger.info(f"Execução #{execution_id} da automação {automation_id} enfileirada para o worker remoto '{target_worker}'.")
+        return execution_id
+
+    # Iniciar execução local em thread separada
     thread = threading.Thread(
         target=_worker_thread,
         args=(automation_id, execution_id),
@@ -282,6 +417,7 @@ def _worker_thread(automation_id: int, execution_id: int, attempt: int = 0) -> N
             if not automation or not execution:
                 with _lock:
                     _running_automations.discard(automation_id)
+                    _cancelled_executions.discard(execution_id)
                 return
 
             if automation.source_type == "http":
@@ -290,14 +426,28 @@ def _worker_thread(automation_id: int, execution_id: int, attempt: int = 0) -> N
                 finally:
                     with _lock:
                         _running_automations.discard(automation_id)
+                        _cancelled_executions.discard(execution_id)
                 return
 
             # Execução de script Python (Local ou Git)
             auto_dir = get_automation_dir(automation_id)
             working_dir = auto_dir / "repo" if automation.source_type == "git" else auto_dir
 
+            # Validar Path Traversal para todos os tipos (local e git)
+            try:
+                entrypoint_path = resolve_safe_path(working_dir, automation.entrypoint)
+            except ValueError as ve:
+                execution.status = "FAILED"
+                execution.error_message = str(ve)
+                execution.finished_at = datetime.now(timezone.utc)
+                db.commit()
+                with _lock:
+                    _running_automations.discard(automation_id)
+                    _cancelled_executions.discard(execution_id)
+                return
+
             # Para automações Git, se o repositório foi apagado anteriormente (modo efêmero), clona sob demanda
-            if automation.source_type == "git" and (not working_dir.exists() or not (working_dir / automation.entrypoint).exists()):
+            if automation.source_type == "git" and (not working_dir.exists() or not entrypoint_path.exists()):
                 logger.info(f"Repositório não encontrado no disco para automação {automation_id}. Clonando sob demanda...")
                 from app.services.git_service import clone_or_update_repo
                 try:
@@ -317,6 +467,7 @@ def _worker_thread(automation_id: int, execution_id: int, attempt: int = 0) -> N
                     db.commit()
                     with _lock:
                         _running_automations.discard(automation_id)
+                        _cancelled_executions.discard(execution_id)
                     return
 
             # Preparar ambiente
@@ -330,18 +481,7 @@ def _worker_thread(automation_id: int, execution_id: int, attempt: int = 0) -> N
                 db.commit()
                 with _lock:
                     _running_automations.discard(automation_id)
-                return
-
-            # Validar arquivo de entrada
-            entrypoint_path = (working_dir / automation.entrypoint).resolve()
-            # Impedir path traversal fora do diretório da automação (exceto se local configurado)
-            if automation.source_type == "git" and not str(entrypoint_path).startswith(str(working_dir.resolve())):
-                execution.status = "FAILED"
-                execution.error_message = "Path traversal detectado no arquivo principal."
-                execution.finished_at = datetime.now(timezone.utc)
-                db.commit()
-                with _lock:
-                    _running_automations.discard(automation_id)
+                    _cancelled_executions.discard(execution_id)
                 return
 
             if not entrypoint_path.exists():
@@ -351,7 +491,16 @@ def _worker_thread(automation_id: int, execution_id: int, attempt: int = 0) -> N
                 db.commit()
                 with _lock:
                     _running_automations.discard(automation_id)
+                    _cancelled_executions.discard(execution_id)
                 return
+
+            # Verificar se foi cancelada enquanto preparava o ambiente
+            db.refresh(execution)
+            with _lock:
+                if execution_id in _cancelled_executions or execution.status == "CANCELLED":
+                    _cancelled_executions.discard(execution_id)
+                    _running_automations.discard(automation_id)
+                    return
 
             # Preparar comando e variáveis de ambiente
             cmd = [str(python_bin), str(entrypoint_path)]
@@ -390,7 +539,6 @@ def _worker_thread(automation_id: int, execution_id: int, attempt: int = 0) -> N
             db.commit()
 
             timed_out = False
-            cancelled = False
 
             try:
                 # Execução segura sem shell=True
@@ -427,20 +575,35 @@ def _worker_thread(automation_id: int, execution_id: int, attempt: int = 0) -> N
             if len(stdout_data.encode("utf-8")) > settings.MAX_LOG_SIZE_BYTES:
                 stdout_data = stdout_data[:settings.MAX_LOG_SIZE_BYTES] + "\n[LOG TRUNCADO: LIMITE EXCEDIDO]"
 
+            # Verificar se a execução foi cancelada pelo usuário durante a execução
+            db.refresh(execution)
+            with _lock:
+                was_cancelled = (execution_id in _cancelled_executions) or (execution.status == "CANCELLED")
+                _cancelled_executions.discard(execution_id)
+
             finished_at = datetime.now(timezone.utc)
             execution.finished_at = finished_at
             execution.duration_seconds = round((finished_at - started_at).total_seconds(), 2)
             execution.exit_code = exit_code
-            execution.logs = sanitize_output(stdout_data)
 
-            if timed_out:
-                execution.status = "TIMEOUT"
-                execution.error_message = f"Tempo limite de {automation.timeout_seconds}s excedido."
-            elif exit_code == 0:
-                execution.status = "SUCCESS"
+            sanitized_logs = sanitize_output(stdout_data)
+            if was_cancelled:
+                cancel_msg = "[EXECUÇÃO CANCELADA PELO USUÁRIO]"
+                if cancel_msg not in sanitized_logs:
+                    sanitized_logs = f"{sanitized_logs}\n{cancel_msg}".strip()
+                execution.logs = sanitized_logs
+                execution.status = "CANCELLED"
+                execution.error_message = "Execução cancelada pelo usuário."
             else:
-                execution.status = "FAILED"
-                execution.error_message = f"Processo encerrou com código de saída {exit_code}."
+                execution.logs = sanitized_logs
+                if timed_out:
+                    execution.status = "TIMEOUT"
+                    execution.error_message = f"Tempo limite de {automation.timeout_seconds}s excedido."
+                elif exit_code == 0:
+                    execution.status = "SUCCESS"
+                else:
+                    execution.status = "FAILED"
+                    execution.error_message = f"Processo encerrou com código de saída {exit_code}."
 
             db.commit()
 
@@ -456,9 +619,10 @@ def _worker_thread(automation_id: int, execution_id: int, attempt: int = 0) -> N
                         logger.info(f"Limpeza pós-execução ('delete_git'): removendo metadados .git de {working_dir}...")
                         safe_rmtree(git_folder)
 
-            # Lógica de Retry
+            # Lógica de Retry (nunca retenta se tiver sido cancelada pelo usuário)
             should_retry = (
-                execution.status in ["FAILED", "TIMEOUT"]
+                not was_cancelled
+                and execution.status in ["FAILED", "TIMEOUT"]
                 and attempt < automation.max_retries
             )
 

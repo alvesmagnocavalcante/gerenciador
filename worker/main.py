@@ -4,6 +4,7 @@ import sys
 import logging
 
 from app.core.database import init_db
+from app.services.executor import cleanup_orphaned_executions
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 
 logging.basicConfig(
@@ -20,6 +21,7 @@ def handle_exit(signum, frame):
 def main():
     logger.info("Iniciando Worker de Agendamento do PyAutomation...")
     init_db()
+    cleanup_orphaned_executions()
     start_scheduler()
 
     signal.signal(signal.SIGINT, handle_exit)
