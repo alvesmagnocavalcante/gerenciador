@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Boolean, Index
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -24,8 +24,21 @@ class Execution(Base):
     error_message = Column(Text, nullable=True)
     process_pid = Column(Integer, nullable=True)
     retry_count = Column(Integer, default=0, nullable=False)
+    owner_id = Column(String(150), nullable=True, index=True)
+    heartbeat_at = Column(DateTime, nullable=True)
+    cancel_requested = Column(Boolean, default=False, nullable=False)
+    progress_percent = Column(Integer, nullable=True)
+    progress_message = Column(String(255), nullable=True)
+    progress_updated_at = Column(DateTime, nullable=True)
 
     automation = relationship("Automation", back_populates="executions")
+    steps = relationship("ExecutionStep", back_populates="execution", cascade="all, delete-orphan",
+                         order_by="ExecutionStep.started_at")
+
+    __table_args__ = (
+        Index("uq_execution_active_automation", "automation_id", unique=True,
+              sqlite_where=status.in_(["PENDING", "RUNNING"])),
+    )
 
     @property
     def started_at_local(self):
@@ -48,3 +61,14 @@ class Execution(Base):
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(ZoneInfo(settings.TIMEZONE))
+
+    @property
+    def elapsed_seconds(self) -> float:
+        if self.duration_seconds is not None:
+            return round(self.duration_seconds, 1)
+        if not self.started_at:
+            return 0.0
+        started = self.started_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        return round(max(0.0, (datetime.now(timezone.utc) - started).total_seconds()), 1)

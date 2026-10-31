@@ -56,21 +56,13 @@ def verify_session(token: Optional[str], max_age: int = SESSION_MAX_AGE_SECONDS)
         if len(parts) == 3:
             username, ts_str, signature = parts
             ts = int(ts_str)
-            if max_age > 0 and (time.time() - ts) > max_age:
+            age = time.time() - ts
+            if age < -60 or (max_age > 0 and age > max_age):
                 return None
             payload = f"{username}:{ts_str}"
             expected = hmac.new(
                 settings.SECRET_KEY.encode("utf-8"),
                 payload.encode("utf-8"),
-                hashlib.sha256
-            ).hexdigest()
-            if hmac.compare_digest(signature, expected):
-                return username
-        elif len(parts) == 2:
-            username, signature = parts
-            expected = hmac.new(
-                settings.SECRET_KEY.encode("utf-8"),
-                username.encode("utf-8"),
                 hashlib.sha256
             ).hexdigest()
             if hmac.compare_digest(signature, expected):
@@ -93,7 +85,7 @@ def resolve_safe_path(base_dir: Path, relative_path: str) -> Path:
 SENSITIVE_PATTERNS = [
     (re.compile(r'(ghp_[a-zA-Z0-9]{36,})'), r'[TOKEN_REDACTED]'),
     (re.compile(r'(github_pat_[a-zA-Z0-9_]{50,})'), r'[TOKEN_REDACTED]'),
-    (re.compile(r'(https?://)([^:\s]+):([^@\s]+)@'), r'\1[CREDENTIALS_REDACTED]@'),
+    (re.compile(r'(https?://)[^/\s@]+@', re.IGNORECASE), r'\1[CREDENTIALS_REDACTED]@'),
     (re.compile(r'((?:password|token|secret|api_key|auth)\s*[:=]\s*["\']?)([^"\'\s&]{4,})', re.IGNORECASE), r'\1[REDACTED]'),
     (re.compile(r'(Bearer\s+)[A-Za-z0-9\-\._~\+\/]+=*', re.IGNORECASE), r'\1[TOKEN_REDACTED]'),
 ]
@@ -106,3 +98,15 @@ def sanitize_output(text: str) -> str:
     for pattern, replacement in SENSITIVE_PATTERNS:
         result = pattern.sub(replacement, result)
     return result
+
+
+def bounded_log(text: str, limit: Optional[int] = None) -> str:
+    """Sanitiza antes de truncar, preservando o limite em bytes UTF-8."""
+    limit = settings.MAX_LOG_SIZE_BYTES if limit is None else limit
+    data = sanitize_output(text).encode("utf-8")
+    if len(data) <= limit:
+        return data.decode("utf-8")
+    marker = "\n[LOG TRUNCADO: LIMITE EXCEDIDO]".encode("utf-8")
+    if limit <= len(marker):
+        return marker[:limit].decode("utf-8", errors="ignore")
+    return data[:limit - len(marker)].decode("utf-8", errors="ignore") + marker.decode("utf-8")

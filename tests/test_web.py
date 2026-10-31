@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from app.core.config import settings
 from app.core.security import sign_session, verify_session
 from app.models.automation import Automation
@@ -5,6 +7,12 @@ from app.models.execution import Execution
 from app.services.executor import get_automation_dir
 
 def test_login_flow(client):
+    login_page = client.get("/login")
+    assert login_page.status_code == 200
+    assert 'value="admin123"' not in login_page.text
+    assert "Padrão inicial" not in login_page.text
+    assert ">admin123<" not in login_page.text
+
     # Rota protegida sem autenticação redireciona
     resp = client.get("/", follow_redirects=False)
     assert resp.status_code == 307
@@ -34,6 +42,100 @@ def test_dashboard_authenticated(auth_client):
     assert resp.status_code == 200
     assert "Visão Geral" in resp.text
     assert "Total Automações" in resp.text
+    assert 'id="sidebar-collapse"' in resp.text
+    assert "localStorage.sidebarCollapsed" in resp.text
+
+
+def test_dashboard_shows_live_execution_progress(auth_client, db_session):
+    auto = Automation(name="Relatório mensal", target_worker="local")
+    db_session.add(auto)
+    db_session.commit()
+    db_session.refresh(auto)
+    execution = Execution(
+        automation_id=auto.id,
+        trigger_type="manual",
+        status="RUNNING",
+        progress_percent=80,
+        progress_message="Gerando relatório",
+    )
+    db_session.add(execution)
+    db_session.commit()
+
+    response = auth_client.get("/")
+    assert response.status_code == 200
+    assert "Acompanhamento de execuções" in response.text
+    assert "Relatório mensal" in response.text
+    assert "Processamento ativo" in response.text
+    assert "Gerando relatório" not in response.text
+    assert 'hx-get="/dashboard/active-executions"' in response.text
+    assert 'hx-trigger="every 2s"' in response.text
+    assert f'hx-get="/dashboard/executions/{execution.id}/row"' in response.text
+    assert 'role="progressbar"' not in response.text
+
+    partial = auth_client.get("/dashboard/active-executions")
+    assert partial.status_code == 200
+    assert 'id="dashboard-active-executions"' in partial.text
+    assert "Processamento ativo" in partial.text
+    assert "Gerando relatório" not in partial.text
+
+    execution.status = "SUCCESS"
+    execution.finished_at = datetime.now(timezone.utc)
+    execution.duration_seconds = 2.4
+    db_session.commit()
+    row = auth_client.get(f"/dashboard/executions/{execution.id}/row")
+    assert row.status_code == 200
+    assert "Sucesso" in row.text
+    assert 'hx-trigger="every 2s"' not in row.text
+    assert "Nones" not in row.text
+
+
+def test_dashboard_does_not_expose_execution_logs(auth_client, db_session):
+    auto = Automation(name="Automação sem percentual")
+    db_session.add(auto)
+    db_session.commit()
+    db_session.refresh(auto)
+    db_session.add(Execution(
+        automation_id=auto.id,
+        trigger_type="manual",
+        status="RUNNING",
+        logs="Iniciando navegador...\nAcessando o Google...\n",
+    ))
+    db_session.commit()
+
+    response = auth_client.get("/dashboard/active-executions")
+    assert response.status_code == 200
+    assert "Processamento ativo" in response.text
+    assert "Iniciando navegador..." not in response.text
+    assert "Acessando o Google..." not in response.text
+
+
+def test_dashboard_briefly_shows_finished_execution(auth_client, db_session):
+    auto = Automation(name="Finalização transitória")
+    db_session.add(auto)
+    db_session.commit()
+    db_session.refresh(auto)
+    execution = Execution(
+        automation_id=auto.id,
+        trigger_type="manual",
+        status="SUCCESS",
+        finished_at=datetime.now(timezone.utc),
+        duration_seconds=3.2,
+    )
+    db_session.add(execution)
+    db_session.commit()
+
+    response = auth_client.get("/dashboard/active-executions")
+    assert response.status_code == 200
+    assert "Finalização transitória" in response.text
+    assert "Execução concluída" in response.text
+    assert "Finalizada sem erros" in response.text
+    assert "Este card será removido automaticamente" not in response.text
+
+    execution.finished_at = datetime.now(timezone.utc) - timedelta(seconds=11)
+    db_session.commit()
+    response = auth_client.get("/dashboard/active-executions")
+    assert response.status_code == 200
+    assert "Finalização transitória" not in response.text
 
 def test_create_automation_web(auth_client, db_session):
     form_data = {
@@ -127,7 +229,14 @@ def test_executions_page_and_xss_protection(client, auth_client, db_session):
     logs_resp = auth_client.get(f"/executions/{ex.id}/logs")
     assert logs_resp.status_code == 200
     assert "<script>alert('xss')</script>" not in logs_resp.text
-    assert "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;" in logs_resp.text
+    assert (
+        "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;" in logs_resp.text
+        or "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;" in logs_resp.text
+    )
+    assert 'id="execution-page-status" hx-swap-oob="innerHTML"' in logs_resp.text
+    assert 'id="execution-refresh-indicator" hx-swap-oob="innerHTML"' in logs_resp.text
+    assert "Execução finalizada" in logs_resp.text
+    assert "Atualização em tempo real" not in logs_resp.text
 
 def test_api_endpoints(client, auth_client, db_session):
     auto = Automation(

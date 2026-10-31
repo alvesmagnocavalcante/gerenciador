@@ -5,9 +5,10 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 from sqlalchemy import asc, desc
 
-from app.core.config import settings
+from app.core.config import BASE_DIR, settings
 from app.core.database import get_db
-from app.core.security import sanitize_output, resolve_safe_path
+from app.core.security import sanitize_output, resolve_safe_path, bounded_log
+from app.services.runtrail import finalize_running_steps, process_execution_output
 from app.models.automation import Automation
 from app.models.execution import Execution
 from app.models.user import User
@@ -20,6 +21,7 @@ from app.services.executor import (
 from app.web.auth import get_api_user
 
 router = APIRouter(prefix="/api", tags=["api"])
+RUNTRAIL_RUNTIME_SOURCE = (BASE_DIR / "runtime" / "runtrail" / "__init__.py").read_text(encoding="utf-8")
 
 class AutomationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -113,6 +115,22 @@ def get_execution(
         "exit_code": execution.exit_code,
         "logs": execution.logs,
         "error_message": execution.error_message,
+        "progress_percent": execution.progress_percent,
+        "progress_message": execution.progress_message,
+        "progress_updated_at": execution.progress_updated_at.isoformat() if execution.progress_updated_at else None,
+        "steps": [
+            {
+                "id": step.id,
+                "name": step.name,
+                "status": step.status,
+                "attempt": step.attempt,
+                "started_at": step.started_at.isoformat(),
+                "finished_at": step.finished_at.isoformat() if step.finished_at else None,
+                "duration_seconds": step.duration_seconds,
+                "error_message": step.error_message,
+            }
+            for step in execution.steps
+        ],
     }
 
 @router.post("/executions/{execution_id}/cancel")
@@ -155,12 +173,17 @@ def worker_poll_next_job(
     if not execution:
         return {"job": None}
 
-    auto = execution.automation
     now = datetime.now(timezone.utc)
-    execution.status = "RUNNING"
-    execution.started_at = now
-    execution.logs = f"[AGENTE REMOTO '{clean_worker}' INICIOU A EXECUÇÃO]\n"
+    claimed = db.query(Execution).filter(Execution.id == execution.id,
+        Execution.status == "PENDING", Execution.cancel_requested.is_(False)).update(
+            {"status": "RUNNING", "started_at": now, "heartbeat_at": now,
+             "owner_id": f"remote:{clean_worker}",
+             "logs": f"[AGENTE REMOTO '{clean_worker}' INICIOU A EXECUÇÃO]\n"}, synchronize_session=False)
     db.commit()
+    if not claimed:
+        return {"job": None}
+    db.refresh(execution)
+    auto = execution.automation
 
     # Se for automação local, enviar o conteúdo do script para que o agente Go não precise de cópia manual
     local_script_content = None
@@ -192,10 +215,12 @@ def worker_poll_next_job(
             "max_retries": auto.max_retries,
             "retry_delay_seconds": auto.retry_delay_seconds,
             "cleanup_mode": auto.cleanup_mode or "none",
+            "max_log_size_bytes": settings.MAX_LOG_SIZE_BYTES,
             "http_url": auto.http_url,
             "http_method": auto.http_method or "GET",
             "http_headers": auto.http_headers,
             "http_body": auto.http_body,
+            "runtrail_runtime_source": RUNTRAIL_RUNTIME_SOURCE,
         }
     }
 
@@ -211,20 +236,30 @@ def worker_execution_heartbeat(
     if not execution:
         raise HTTPException(status_code=404, detail="Execução não encontrada")
 
-    cancel_requested = (execution.status == "CANCELLED")
+    cancel_requested = execution.cancel_requested or execution.status not in ["PENDING", "RUNNING"]
 
+    if execution.status not in ["PENDING", "RUNNING"]:
+        return {"ok": True, "cancel_requested": True}
+
+    values = {"heartbeat_at": datetime.now(timezone.utc)}
     if payload.process_pid is not None:
-        execution.process_pid = payload.process_pid
+        values["process_pid"] = payload.process_pid
     if payload.retry_count is not None:
-        execution.retry_count = payload.retry_count
+        if payload.retry_count > execution.retry_count:
+            values.update(
+                progress_percent=None,
+                progress_message=None,
+                progress_updated_at=None,
+            )
+        values["retry_count"] = payload.retry_count
     if payload.logs is not None and not cancel_requested:
-        raw_logs = payload.logs
-        if len(raw_logs.encode("utf-8")) > settings.MAX_LOG_SIZE_BYTES:
-            raw_logs = raw_logs[:settings.MAX_LOG_SIZE_BYTES] + "\n[LOG TRUNCADO: LIMITE EXCEDIDO]"
-        execution.logs = sanitize_output(raw_logs)
+        values.update(process_execution_output(db, execution.id, payload.logs))
 
+    db.query(Execution).filter(Execution.id == execution_id,
+        Execution.status.in_(["PENDING", "RUNNING"])).update(values, synchronize_session=False)
     db.commit()
-    return {"ok": True, "cancel_requested": cancel_requested}
+    db.refresh(execution)
+    return {"ok": True, "cancel_requested": execution.cancel_requested or execution.status not in ["PENDING", "RUNNING"]}
 
 @router.post("/worker/executions/{execution_id}/complete")
 def worker_execution_complete(
@@ -238,36 +273,47 @@ def worker_execution_complete(
     if not execution:
         raise HTTPException(status_code=404, detail="Execução não encontrada")
 
+    if execution.status not in ["PENDING", "RUNNING"]:
+        return {"ok": True, "status": execution.status}
+
     now = datetime.now(timezone.utc)
-    execution.finished_at = now
+    status_value = "CANCELLED" if execution.cancel_requested or payload.status == "CANCELLED" else payload.status
+    if status_value not in {"SUCCESS", "FAILED", "TIMEOUT", "CANCELLED"}:
+        status_value = "FAILED"
+    logs = payload.logs or ""
+    error = payload.error_message
+    if status_value == "CANCELLED":
+        logs += "\n[EXECUÇÃO CANCELADA PELO USUÁRIO]"
+        error = "Execução cancelada pelo usuário."
+    values = {"status": status_value, "finished_at": now, "exit_code": payload.exit_code,
+              "error_message": sanitize_output(error or "") or None,
+              "heartbeat_at": now, "retry_count": payload.retry_count or 0}
+    values.update(process_execution_output(db, execution.id, logs))
+    finalize_running_steps(db, execution.id, status_value, now)
+    if status_value == "SUCCESS" and (values.get("progress_percent") is not None or execution.progress_percent is not None):
+        values["progress_percent"] = 100
+        values["progress_message"] = values.get("progress_message") or execution.progress_message or "Concluído"
+        values["progress_updated_at"] = now
     if execution.started_at:
         started = execution.started_at if execution.started_at.tzinfo else execution.started_at.replace(tzinfo=timezone.utc)
-        execution.duration_seconds = round((now - started).total_seconds(), 2)
-
-    execution.exit_code = payload.exit_code
-    if payload.retry_count is not None:
-        execution.retry_count = payload.retry_count
-
-    raw_logs = payload.logs or ""
-    if len(raw_logs.encode("utf-8")) > settings.MAX_LOG_SIZE_BYTES:
-        raw_logs = raw_logs[:settings.MAX_LOG_SIZE_BYTES] + "\n[LOG TRUNCADO: LIMITE EXCEDIDO]"
-    sanitized = sanitize_output(raw_logs)
-
-    if execution.status == "CANCELLED" or payload.status == "CANCELLED":
-        cancel_msg = "[EXECUÇÃO CANCELADA PELO USUÁRIO]"
-        if cancel_msg not in sanitized:
-            sanitized = f"{sanitized}\n{cancel_msg}".strip()
-        execution.status = "CANCELLED"
-        execution.error_message = "Execução cancelada pelo usuário."
-    else:
-        valid_statuses = {"SUCCESS", "FAILED", "TIMEOUT", "CANCELLED"}
-        execution.status = payload.status if payload.status in valid_statuses else "FAILED"
-        execution.error_message = payload.error_message
-
-    execution.logs = sanitized
-
+        values["duration_seconds"] = round((now - started).total_seconds(), 2)
+    changed = db.query(Execution).filter(Execution.id == execution_id,
+        Execution.status.in_(["PENDING", "RUNNING"]),
+        Execution.cancel_requested == execution.cancel_requested).update(values, synchronize_session=False)
+    if not changed:
+        db.rollback()
+        # Um cancelamento concorrente vence a conclusão enviada pelo agente.
+        current = db.get(Execution, execution_id)
+        if current and current.status in ["PENDING", "RUNNING"] and current.cancel_requested:
+            values.update(status="CANCELLED", error_message="Execução cancelada pelo usuário.")
+            values.update(process_execution_output(
+                db, execution.id, logs + "\n[EXECUÇÃO CANCELADA PELO USUÁRIO]"
+            ))
+            finalize_running_steps(db, execution.id, "CANCELLED", now)
+            db.query(Execution).filter(Execution.id == execution_id,
+                Execution.status.in_(["PENDING", "RUNNING"]), Execution.cancel_requested.is_(True)).update(values, synchronize_session=False)
     if payload.commit_sha and execution.automation:
         execution.automation.current_commit = payload.commit_sha[:40]
-
     db.commit()
-    return {"ok": True, "status": execution.status}
+    db.expire_all()
+    return {"ok": True, "status": db.get(Execution, execution_id).status}

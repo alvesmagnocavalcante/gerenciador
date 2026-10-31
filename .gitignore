@@ -8,9 +8,17 @@ wheels/
 
 # Virtual environments
 .venv
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.test-artifacts/
 
 # Local data & databases
 data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.lock
 data/automations/*
 !data/automations/.gitkeep
 data/test_app.db

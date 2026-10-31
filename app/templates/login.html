@@ -1,53 +1,62 @@
 {% extends "base.html" %}
 
-{% block title %}Entrar - PyAutomation Manager{% endblock %}
+{% block title %}Entrar — PyAutomation Manager{% endblock %}
 
 {% block content %}
-<div class="min-h-[70vh] flex flex-col justify-center items-center py-12 sm:px-6 lg:px-8">
-    <div class="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div class="inline-flex items-center justify-center w-14 h-14 rounded-full bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 text-3xl font-bold mb-3 shadow-sm">
-            ⚡
-        </div>
-        <h2 class="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">PyAutomation</h2>
-        <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">Acesse o painel central de gerenciamento de automações</p>
-    </div>
-
-    <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div class="bg-white dark:bg-zinc-900 py-8 px-6 shadow-sm border border-zinc-200 dark:border-zinc-800 sm:rounded-xl sm:px-10 transition-colors">
-            {% if error %}
-            <div class="mb-4 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-sm">
-                {{ error }}
+<div class="flex min-h-screen items-center justify-center px-5 py-10">
+    <section class="grid w-full max-w-4xl overflow-hidden rounded-[2rem] border border-white/60 bg-white/85 shadow-2xl shadow-indigo-950/10 backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-900/90 lg:grid-cols-[1.05fr_.95fr]">
+        <div class="relative hidden min-h-[580px] overflow-hidden bg-zinc-950 p-10 text-white lg:flex lg:flex-col lg:justify-between">
+            <div class="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-indigo-600/40 blur-3xl"></div>
+            <div class="absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-cyan-500/20 blur-3xl"></div>
+            <div class="relative flex items-center gap-3">
+                <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-400 shadow-lg shadow-indigo-500/30">
+                    <svg class="h-6 w-6 fill-none stroke-white" viewBox="0 0 24 24"><path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+                <div><strong class="block text-sm tracking-wide">PyAutomation</strong><span class="text-xs text-zinc-400">Manager</span></div>
             </div>
+            <div class="relative">
+                <span class="mb-5 inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-bold uppercase tracking-[.18em] text-cyan-300">Automation control</span>
+                <h1 class="max-w-md text-4xl font-bold leading-tight tracking-tight">Automações sob controle, sem complexidade.</h1>
+                <p class="mt-5 max-w-sm text-sm leading-7 text-zinc-400">Gerencie agendamentos, acompanhe execuções e investigue cada etapa em um único lugar.</p>
+            </div>
+            <div class="relative flex items-center gap-2 text-xs text-zinc-500">
+                <span class="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,.8)]"></span>
+                Plataforma operacional disponível
+            </div>
+        </div>
+
+        <div class="flex min-h-[580px] flex-col justify-center px-7 py-12 sm:px-12">
+            <div class="mb-9 lg:hidden">
+                <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 shadow-lg shadow-indigo-500/20">
+                    <svg class="h-6 w-6 fill-none stroke-white" viewBox="0 0 24 24"><path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+            </div>
+            <span class="page-kicker">Área segura</span>
+            <h2 class="mt-2 text-3xl font-bold tracking-tight text-zinc-950 dark:text-white">Bem-vindo de volta</h2>
+            <p class="mt-3 text-sm leading-6 text-zinc-500 dark:text-zinc-400">Entre com suas credenciais para acessar o painel.</p>
+
+            {% if error %}
+            <div class="mt-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300" role="alert">{{ error }}</div>
             {% endif %}
 
-            <form class="space-y-5" action="/login" method="POST">
+            <form class="mt-8 space-y-5" action="/login" method="POST">
                 <div>
-                    <label for="username" class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">Usuário</label>
-                    <div class="mt-1">
-                        <input id="username" name="username" type="text" required value="{{ username or 'admin' }}"
-                            class="appearance-none block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg shadow-sm placeholder-zinc-400 focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
-                    </div>
+                    <label for="username" class="mb-2 block text-xs font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-300">Usuário</label>
+                    <input id="username" name="username" type="text" required autocomplete="username" value="{{ username or '' }}"
+                        class="block w-full rounded-xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 text-sm text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:focus:border-indigo-400 dark:focus:bg-zinc-800">
                 </div>
-
                 <div>
-                    <label for="password" class="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">Senha</label>
-                    <div class="mt-1">
-                        <input id="password" name="password" type="password" required value="admin123"
-                            class="appearance-none block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white rounded-lg shadow-sm placeholder-zinc-400 focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
-                    </div>
+                    <label for="password" class="mb-2 block text-xs font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-300">Senha</label>
+                    <input id="password" name="password" type="password" required autocomplete="current-password"
+                        class="block w-full rounded-xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 text-sm text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:focus:border-indigo-400 dark:focus:bg-zinc-800">
                 </div>
-
-                <div class="pt-2">
-                    <button type="submit"
-                        class="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 transition duration-150">
-                        Entrar no Painel
-                    </button>
-                </div>
+                <button type="submit" class="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/20 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-500/25 focus:outline-none focus:ring-4 focus:ring-indigo-500/20">
+                    Entrar no painel
+                    <svg class="h-4 w-4 fill-none stroke-current" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
             </form>
-            <div class="mt-6 text-center text-xs text-zinc-400 dark:text-zinc-500">
-                Padrão inicial: <code class="bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded text-zinc-600 dark:text-zinc-400">admin</code> / <code class="bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded text-zinc-600 dark:text-zinc-400">admin123</code>
-            </div>
+            <p class="mt-8 text-center text-xs text-zinc-400">Acesso protegido por sessão segura.</p>
         </div>
-    </div>
+    </section>
 </div>
 {% endblock %}

@@ -1,0 +1,29 @@
+{% set is_active = execution.status in ['PENDING', 'RUNNING'] %}
+<div id="dashboard-recent-execution-{{ execution.id }}"
+    class="list-row"
+    {% if is_active %}
+    hx-get="/dashboard/executions/{{ execution.id }}/row"
+    hx-trigger="every 2s"
+    hx-swap="outerHTML"
+    {% endif %}>
+    <div>
+        <a href="/executions/{{ execution.id }}" class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 hover:text-sky-600 dark:hover:text-sky-400">
+            {{ execution.automation.name if execution.automation else 'Automação #' ~ execution.automation_id }}
+        </a>
+        <div class="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+            {{ execution.started_at | localdatetime('%d/%m %H:%M:%S') }} &bull;
+            {% if is_active %}{{ execution.elapsed_seconds }}s{% elif execution.duration_seconds is not none %}{{ execution.duration_seconds | round(1) }}s{% else %}-{% endif %}
+        </div>
+    </div>
+    <div>
+        {% if execution.status == 'SUCCESS' %}
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">Sucesso</span>
+        {% elif execution.status in ['FAILED', 'TIMEOUT'] %}
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300">{{ execution.status }}</span>
+        {% elif is_active %}
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 animate-pulse">Em execução</span>
+        {% else %}
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">Cancelada</span>
+        {% endif %}
+    </div>
+</div>

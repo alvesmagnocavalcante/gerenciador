@@ -1,13 +1,13 @@
 import html
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import logging
 from fastapi import APIRouter, Request, Depends, Form, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import and_, desc, or_
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -97,6 +97,28 @@ def logout():
 
 # ----------------- DASHBOARD -----------------
 
+DASHBOARD_FINISHED_VISIBILITY_SECONDS = 10
+ACTIVE_EXECUTION_STATUSES = ("PENDING", "RUNNING")
+FINISHED_EXECUTION_STATUSES = ("SUCCESS", "FAILED", "TIMEOUT", "CANCELLED")
+
+
+def _dashboard_execution_context(db: Session) -> dict:
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=DASHBOARD_FINISHED_VISIBILITY_SECONDS)
+    executions = db.query(Execution).filter(or_(
+        Execution.status.in_(ACTIVE_EXECUTION_STATUSES),
+        and_(
+            Execution.status.in_(FINISHED_EXECUTION_STATUSES),
+            Execution.finished_at.is_not(None),
+            Execution.finished_at >= cutoff,
+        ),
+    )).order_by(desc(Execution.id)).all()
+    return {
+        "dashboard_executions": executions,
+        "dashboard_active_count": sum(
+            execution.status in ACTIVE_EXECUTION_STATUSES for execution in executions
+        ),
+    }
+
 @router.get("/", response_class=HTMLResponse)
 def dashboard(
     request: Request,
@@ -115,6 +137,7 @@ def dashboard(
     ).order_by(Automation.next_run_at.asc()).limit(5).all()
 
     recent_executions = db.query(Execution).order_by(desc(Execution.id)).limit(10).all()
+    execution_context = _dashboard_execution_context(db)
 
     return templates.TemplateResponse(
         request=request,
@@ -128,7 +151,38 @@ def dashboard(
             "failed_executions": failed_executions,
             "upcoming_jobs": upcoming_jobs,
             "recent_executions": recent_executions,
+            **execution_context,
         }
+    )
+
+
+@router.get("/dashboard/active-executions", response_class=HTMLResponse)
+def dashboard_active_executions(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard/_active_executions.html",
+        context=_dashboard_execution_context(db),
+    )
+
+
+@router.get("/dashboard/executions/{execution_id}/row", response_class=HTMLResponse)
+def dashboard_recent_execution_row(
+    execution_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    execution = db.get(Execution, execution_id)
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execução não encontrada")
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard/_recent_execution_row.html",
+        context={"execution": execution},
     )
 
 # ----------------- AUTOMAÇÕES -----------------
@@ -166,9 +220,9 @@ def automations_create(
     entrypoint: str = Form("main.py"),
     arguments: Optional[str] = Form(None),
     env_vars: Optional[str] = Form(None),
-    timeout_seconds: int = Form(3600),
-    max_retries: int = Form(0),
-    retry_delay_seconds: int = Form(10),
+    timeout_seconds: int = Form(3600, ge=1),
+    max_retries: int = Form(0, ge=0, le=100),
+    retry_delay_seconds: int = Form(10, ge=0),
     cleanup_mode: str = Form("none"),
     target_worker: str = Form("local"),
     # Git
@@ -348,9 +402,9 @@ def automations_update(
     entrypoint: str = Form("main.py"),
     arguments: Optional[str] = Form(None),
     env_vars: Optional[str] = Form(None),
-    timeout_seconds: int = Form(3600),
-    max_retries: int = Form(0),
-    retry_delay_seconds: int = Form(10),
+    timeout_seconds: int = Form(3600, ge=1),
+    max_retries: int = Form(0, ge=0, le=100),
+    retry_delay_seconds: int = Form(10, ge=0),
     cleanup_mode: str = Form("none"),
     target_worker: str = Form("local"),
     # Git
@@ -676,44 +730,17 @@ def executions_get_logs(
 ):
     execution = db.query(Execution).filter(Execution.id == execution_id).first()
     if not execution:
-        return HTMLResponse("<p>Execução não encontrada.</p>")
-
-    is_running = execution.status in ["PENDING", "RUNNING"]
-    poll_attr = 'hx-get="/executions/' + str(int(execution_id)) + '/logs" hx-trigger="every 2s" hx-swap="outerHTML"' if is_running else ''
-
-    status_badge = {
-        "SUCCESS": '<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">Sucesso</span>',
-        "FAILED": '<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300">Falha</span>',
-        "TIMEOUT": '<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">Timeout</span>',
-        "RUNNING": '<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 animate-pulse">Executando</span>',
-        "PENDING": '<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-300">Pendente</span>',
-        "CANCELLED": '<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400">Cancelado</span>',
-    }.get(execution.status, html.escape(str(execution.status)))
-
-    duration_text = f"{execution.duration_seconds}s" if execution.duration_seconds is not None else "-"
-    raw_logs = execution.logs if execution.logs else "(Nenhum log gerado ainda)"
-    safe_log_content = html.escape(raw_logs)
-
-    html_out = f"""
-    <div id="execution-logs-container" {poll_attr}>
-        <div class="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800 mb-3">
-            <div class="flex items-center space-x-3">
-                <span class="text-sm font-medium text-zinc-600 dark:text-zinc-400">Status atual:</span>
-                {status_badge}
-                <span class="text-xs text-zinc-500 dark:text-zinc-400">Duração: {html.escape(duration_text)}</span>
-            </div>
-            <div>
-                {f'<button hx-post="/executions/{int(execution.id)}/cancel" hx-target="#execution-logs-container" class="px-3 py-1 bg-rose-600 text-white rounded text-xs hover:bg-rose-700 transition">Cancelar Execução</button>' if is_running else ''}
-            </div>
-        </div>
-        <pre class="bg-zinc-950 border border-zinc-800 text-zinc-100 font-mono text-xs p-4 rounded-lg overflow-x-auto whitespace-pre-wrap leading-relaxed max-h-[600px] select-text">{safe_log_content}</pre>
-    </div>
-    """
-    return HTMLResponse(content=html_out)
+        raise HTTPException(status_code=404, detail="Execução não encontrada")
+    return templates.TemplateResponse(
+        request=request,
+        name="executions/_live.html",
+        context={"execution": execution, "include_oob": True},
+    )
 
 @router.post("/executions/{execution_id}/cancel")
 def executions_cancel(
     execution_id: int,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -724,4 +751,18 @@ def executions_cancel(
     if execution.status in ["PENDING", "RUNNING"]:
         cancel_execution(execution_id)
 
+    if "HX-Request" in request.headers:
+        db.expire_all()
+        if request.headers.get("HX-Target") == "dashboard-active-executions":
+            return templates.TemplateResponse(
+                request=request,
+                name="dashboard/_active_executions.html",
+                context=_dashboard_execution_context(db),
+            )
+        execution = db.get(Execution, execution_id)
+        return templates.TemplateResponse(
+            request=request,
+            name="executions/_live.html",
+            context={"execution": execution, "include_oob": True},
+        )
     return RedirectResponse(url=f"/executions/{execution_id}", status_code=status.HTTP_302_FOUND)

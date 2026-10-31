@@ -1,0 +1,140 @@
+<section id="dashboard-active-executions"
+    hx-get="/dashboard/active-executions"
+    hx-trigger="every 2s"
+    hx-swap="outerHTML"
+    >
+    <div class="mb-4 flex items-end justify-between">
+        <div>
+            <span class="page-kicker">Live monitor</span>
+            <h2 class="mt-1 text-lg font-bold tracking-tight text-zinc-900 dark:text-white">Acompanhamento de execuções</h2>
+            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Estados atualizados automaticamente a cada dois segundos.</p>
+        </div>
+        {% if dashboard_active_count %}
+        <span class="rounded-full bg-sky-100 dark:bg-sky-950/60 px-2.5 py-1 text-xs font-semibold text-sky-700 dark:text-sky-300">
+            {{ dashboard_active_count }} ativa{{ 's' if dashboard_active_count != 1 else '' }}
+        </span>
+        {% endif %}
+    </div>
+
+    {% if dashboard_executions %}
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {% for execution in dashboard_executions %}
+        {% set is_active = execution.status in ['PENDING', 'RUNNING'] %}
+        <article class="relative overflow-hidden rounded-2xl border {{ 'border-emerald-800/60' if execution.status == 'SUCCESS' else 'border-rose-900/70' if execution.status in ['FAILED', 'TIMEOUT'] else 'border-zinc-700/80' }} bg-gradient-to-br from-zinc-800 to-zinc-900 p-5 text-zinc-100 shadow-xl shadow-zinc-950/10 transition hover:-translate-y-0.5 hover:border-indigo-500/40">
+            <div class="mb-4 flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <div class="mb-1 flex items-center gap-2 text-xs text-zinc-400">
+                        {% if is_active %}
+                        <span class="relative flex h-2 w-2" aria-hidden="true">
+                            <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75"></span>
+                            <span class="relative inline-flex h-2 w-2 rounded-full bg-sky-500"></span>
+                        </span>
+                        {% elif execution.status == 'SUCCESS' %}
+                        <span class="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true"></span>
+                        {% elif execution.status in ['FAILED', 'TIMEOUT'] %}
+                        <span class="h-2 w-2 rounded-full bg-rose-500" aria-hidden="true"></span>
+                        {% else %}
+                        <span class="h-2 w-2 rounded-full bg-zinc-500" aria-hidden="true"></span>
+                        {% endif %}
+                        <span>
+                            {% if execution.status == 'PENDING' %}Aguardando
+                            {% elif execution.status == 'RUNNING' %}Em execução
+                            {% elif execution.status == 'SUCCESS' %}Concluída
+                            {% elif execution.status == 'TIMEOUT' %}Tempo limite
+                            {% elif execution.status == 'FAILED' %}Falhou
+                            {% else %}Cancelada{% endif %}
+                        </span>
+                        {% if execution.automation and execution.automation.target_worker %}
+                        <span>&bull; {{ execution.automation.target_worker }}</span>
+                        {% endif %}
+                    </div>
+                    <a href="/executions/{{ execution.id }}"
+                        class="block truncate text-sm font-semibold text-white hover:text-sky-300">
+                        {{ execution.automation.name if execution.automation else 'Automação #' ~ execution.automation_id }}
+                    </a>
+                </div>
+                <div class="flex shrink-0 items-center gap-1">
+                    <a href="/executions/{{ execution.id }}" title="Abrir detalhes"
+                        class="rounded-lg p-2 text-zinc-400 hover:bg-zinc-700 hover:text-white" aria-label="Abrir detalhes">
+                        <svg class="h-4 w-4 fill-none stroke-current" viewBox="0 0 24 24"><path d="M8 16 16 8M9 8h7v7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </a>
+                    {% if is_active and not execution.cancel_requested %}
+                    <button type="button" title="Cancelar execução"
+                        hx-post="/executions/{{ execution.id }}/cancel"
+                        hx-target="#dashboard-active-executions"
+                        hx-swap="outerHTML"
+                        hx-confirm="Deseja realmente cancelar esta execução?"
+                        class="rounded-lg p-2 text-zinc-400 hover:bg-rose-950/60 hover:text-rose-300" aria-label="Cancelar execução">
+                        <svg class="h-4 w-4 fill-current" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-zinc-700 bg-zinc-950/70 p-4">
+                {% if execution.status == 'SUCCESS' %}
+                <div class="flex items-center gap-3 text-emerald-300">
+                    <span class="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-950 text-sm">✓</span>
+                    <div>
+                        <div class="text-sm font-medium">Execução concluída</div>
+                        <div class="mt-0.5 text-xs text-zinc-500">Finalizada sem erros.</div>
+                    </div>
+                </div>
+                {% elif execution.status in ['FAILED', 'TIMEOUT'] %}
+                <div class="flex items-center gap-3 text-rose-300">
+                    <span class="flex h-6 w-6 items-center justify-center rounded-full bg-rose-950 text-sm">×</span>
+                    <div>
+                        <div class="text-sm font-medium">{{ 'Tempo limite excedido' if execution.status == 'TIMEOUT' else 'Execução finalizada com falha' }}</div>
+                        <div class="mt-0.5 text-xs text-zinc-500">Consulte os detalhes para diagnóstico.</div>
+                    </div>
+                </div>
+                {% elif execution.status == 'CANCELLED' %}
+                <div class="flex items-center gap-3 text-zinc-300">
+                    <span class="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-sm">■</span>
+                    <div>
+                        <div class="text-sm font-medium">Execução cancelada</div>
+                        <div class="mt-0.5 text-xs text-zinc-500">Interrompida pelo usuário.</div>
+                    </div>
+                </div>
+                {% elif execution.cancel_requested %}
+                <div class="flex items-center gap-3 text-amber-300">
+                    <span class="h-3 w-3 animate-pulse rounded-full bg-amber-400"></span>
+                    <span class="text-sm font-medium">Encerrando execução...</span>
+                </div>
+                {% elif execution.status == 'PENDING' %}
+                <div class="flex items-center gap-3 text-zinc-300">
+                    <span class="h-3 w-3 animate-pulse rounded-full bg-zinc-500"></span>
+                    <div>
+                        <div class="text-sm font-medium">Aguardando execução</div>
+                        <div class="mt-0.5 text-xs text-zinc-500">A tarefa está na fila ou aguardando o worker.</div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="flex items-center gap-3 text-sky-300">
+                    <span class="relative flex h-3 w-3">
+                        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75"></span>
+                        <span class="relative inline-flex h-3 w-3 rounded-full bg-sky-500"></span>
+                    </span>
+                    <div>
+                        <div class="text-sm font-medium">Processamento ativo</div>
+                        <div class="mt-0.5 text-xs text-zinc-500">A automação está sendo executada.</div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="mt-3 flex items-center justify-between gap-3 text-xs text-zinc-400">
+                <span>Tempo decorrido: <strong class="font-mono text-zinc-300">{{ execution.elapsed_seconds }}s</strong></span>
+                {% if is_active and execution.retry_count %}
+                <span>Tentativa {{ execution.retry_count + 1 }}</span>
+                {% endif %}
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 bg-white/50 dark:bg-zinc-900/40 px-5 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+        Nenhuma execução em andamento.
+    </div>
+    {% endif %}
+</section>

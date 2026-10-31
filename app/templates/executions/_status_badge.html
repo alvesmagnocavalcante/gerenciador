@@ -1,0 +1,9 @@
+{% if execution.status == 'SUCCESS' %}
+<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">Sucesso</span>
+{% elif execution.status in ['FAILED', 'TIMEOUT'] %}
+<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300">{{ execution.status }}</span>
+{% elif execution.status in ['PENDING', 'RUNNING'] %}
+<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 animate-pulse">Executando</span>
+{% else %}
+<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-300">{{ execution.status }}</span>
+{% endif %}

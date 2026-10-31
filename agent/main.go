@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -41,10 +42,12 @@ type Job struct {
 	MaxRetries         int               `json:"max_retries"`
 	RetryDelaySeconds  int               `json:"retry_delay_seconds"`
 	CleanupMode        string            `json:"cleanup_mode"`
+	MaxLogSizeBytes    int               `json:"max_log_size_bytes"`
 	HttpURL            *string           `json:"http_url"`
 	HttpMethod         string            `json:"http_method"`
 	HttpHeaders        *string           `json:"http_headers"`
 	HttpBody           *string           `json:"http_body"`
+	RunTrailSource     string            `json:"runtrail_runtime_source"`
 }
 
 type PollResponse struct {
@@ -52,9 +55,9 @@ type PollResponse struct {
 }
 
 type HeartbeatPayload struct {
-	Logs       string `json:"logs"`
-	ProcessPID *int   `json:"process_pid,omitempty"`
-	RetryCount int    `json:"retry_count"`
+	Logs       *string `json:"logs,omitempty"`
+	ProcessPID *int    `json:"process_pid,omitempty"`
+	RetryCount *int    `json:"retry_count,omitempty"`
 }
 
 type HeartbeatResponse struct {
@@ -72,26 +75,99 @@ type CompletePayload struct {
 }
 
 type safeBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+	mu                  sync.Mutex
+	buf                 bytes.Buffer
+	limit               int
+	progressPending     []byte
+	latestProgressEvent string
+	runTrailEvents      []string
 }
 
 func (s *safeBuffer) Write(p []byte) (n int, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.buf.Write(p)
+	s.trackProgress(p)
+	limit := s.limit
+	if limit <= 0 {
+		limit = 5 * 1024 * 1024
+	}
+	n = len(p)
+	remaining := limit - s.buf.Len()
+	if len(p) <= remaining {
+		_, err = s.buf.Write(p)
+	} else {
+		marker := []byte("\n[LOG TRUNCADO: LIMITE EXCEDIDO]")
+		keep := limit - len(marker)
+		if keep < 0 {
+			keep = 0
+		}
+		if s.buf.Len() > keep {
+			s.buf.Truncate(keep)
+		}
+		if s.buf.Len() < keep {
+			_, _ = s.buf.Write(p[:keep-s.buf.Len()])
+		}
+		_, _ = s.buf.Write(marker[:min(len(marker), limit-s.buf.Len())])
+	}
+	return n, err
+}
+
+func (s *safeBuffer) trackProgress(p []byte) {
+	data := append(s.progressPending, p...)
+	lines := bytes.Split(data, []byte("\n"))
+	s.progressPending = append(s.progressPending[:0], lines[len(lines)-1]...)
+	if len(s.progressPending) > 4096 {
+		// Uma linha comum sem quebra não pode fazer o rastreador crescer sem limite.
+		s.progressPending = s.progressPending[:0]
+	}
+	for _, rawLine := range lines[:len(lines)-1] {
+		line := bytes.TrimSuffix(rawLine, []byte("\r"))
+		const runTrailPrefix = "RUNTRAIL_EVENT:"
+		if bytes.HasPrefix(line, []byte(runTrailPrefix)) {
+			if len(line) <= 4096 {
+				s.runTrailEvents = append(s.runTrailEvents, string(line))
+				if len(s.runTrailEvents) > 1000 {
+					s.runTrailEvents = s.runTrailEvents[len(s.runTrailEvents)-1000:]
+				}
+			}
+			continue
+		}
+		const prefix = "PYAUTO_PROGRESS:"
+		if !bytes.HasPrefix(line, []byte(prefix)) {
+			continue
+		}
+		var event struct {
+			Percent *float64 `json:"percent"`
+			Message any      `json:"message"`
+		}
+		if err := json.Unmarshal(line[len(prefix):], &event); err != nil || event.Percent == nil ||
+			*event.Percent < 0 || *event.Percent > 100 || math.Trunc(*event.Percent) != *event.Percent {
+			continue
+		}
+		if event.Message != nil {
+			if _, ok := event.Message.(string); !ok {
+				continue
+			}
+		}
+		s.latestProgressEvent = string(line)
+	}
 }
 
 func (s *safeBuffer) WriteString(str string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.buf.WriteString(str)
+	_, _ = s.Write([]byte(str))
 }
 
 func (s *safeBuffer) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.buf.String()
+	result := strings.ToValidUTF8(s.buf.String(), "?")
+	if s.latestProgressEvent != "" {
+		result += "\n" + s.latestProgressEvent + "\n"
+	}
+	if len(s.runTrailEvents) > 0 {
+		result += "\n" + strings.Join(s.runTrailEvents, "\n") + "\n"
+	}
+	return result
 }
 
 type AgentConfig struct {
@@ -201,16 +277,22 @@ func pollNextJob(ctx context.Context, cfg *AgentConfig) (*Job, error) {
 }
 
 func sendHeartbeat(cfg *AgentConfig, execID int, logs string, pid *int, retryCount int) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	u := fmt.Sprintf("%s/api/worker/executions/%d/heartbeat", cfg.ServerURL, execID)
 	payload := HeartbeatPayload{
-		Logs:       logs,
 		ProcessPID: pid,
-		RetryCount: retryCount,
+	}
+	if logs != "" {
+		payload.Logs = &logs
+	}
+	if retryCount >= 0 {
+		payload.RetryCount = &retryCount
 	}
 	b, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPost, u, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(b))
 	if err != nil {
-		return false
+		return true
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if cfg.APIKey != "" {
@@ -218,15 +300,16 @@ func sendHeartbeat(cfg *AgentConfig, execID int, logs string, pid *int, retryCou
 	}
 	resp, err := cfg.Client.Do(req)
 	if err != nil {
-		return false
+		// Falhar fechado: não continuar trabalho sem confirmação da reserva.
+		return true
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return false
+		return true
 	}
 	var hr HeartbeatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&hr); err != nil {
-		return false
+		return true
 	}
 	return hr.CancelRequested
 }
@@ -256,6 +339,9 @@ func sendComplete(cfg *AgentConfig, execID int, payload CompletePayload) {
 }
 
 func resolveSafePath(baseDir, relPath string) (string, error) {
+	if strings.TrimSpace(relPath) == "" {
+		return "", errors.New("caminho de arquivo vazio")
+	}
 	cleanBase, err := filepath.Abs(baseDir)
 	if err != nil {
 		return "", err
@@ -264,16 +350,70 @@ func resolveSafePath(baseDir, relPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	rel, err := filepath.Rel(cleanBase, target)
+	physicalBase, err := resolveExistingParent(cleanBase)
+	if err != nil {
+		return "", err
+	}
+	physicalTarget, err := resolveExistingParent(target)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(physicalBase, physicalTarget)
 	if err != nil || strings.HasPrefix(rel, "..") || rel == "." {
 		return "", errors.New("path traversal detectado: o arquivo deve estar dentro do diretório da automação")
 	}
-	return target, nil
+	return physicalTarget, nil
+}
+
+func resolveExistingParent(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return resolved, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if _, statErr := os.Lstat(path); statErr == nil {
+		return "", err
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return "", err
+	}
+	resolvedParent, err := resolveExistingParent(parent)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(resolvedParent, filepath.Base(path)), nil
 }
 
 func processJob(parentCtx context.Context, cfg *AgentConfig, job *Job) {
+	ctx, cancel := context.WithCancel(parentCtx)
+	defer cancel()
+	if sendHeartbeat(cfg, job.ExecutionID, "", nil, -1) {
+		cancel()
+	}
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if sendHeartbeat(cfg, job.ExecutionID, "", nil, -1) {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	if ctx.Err() != nil {
+		sendComplete(cfg, job.ExecutionID, CompletePayload{Status: "CANCELLED"})
+		return
+	}
 	if job.SourceType == "http" {
-		executeHTTPJob(parentCtx, cfg, job)
+		executeHTTPJob(ctx, cfg, job)
 		return
 	}
 
@@ -291,6 +431,20 @@ func processJob(parentCtx context.Context, cfg *AgentConfig, job *Job) {
 	workingDir := autoDir
 	if job.SourceType == "git" {
 		workingDir = filepath.Join(autoDir, "repo")
+	}
+	runtimeDir := filepath.Join(autoDir, ".pyautomation_runtime")
+	if job.RunTrailSource != "" {
+		runTrailDir := filepath.Join(runtimeDir, "runtrail")
+		if err := os.MkdirAll(runTrailDir, 0755); err != nil {
+			errMsg := fmt.Sprintf("Falha ao preparar RunTrail: %v", err)
+			sendComplete(cfg, job.ExecutionID, CompletePayload{Status: "FAILED", Logs: errMsg, ErrorMessage: &errMsg})
+			return
+		}
+		if err := os.WriteFile(filepath.Join(runTrailDir, "__init__.py"), []byte(job.RunTrailSource), 0644); err != nil {
+			errMsg := fmt.Sprintf("Falha ao instalar RunTrail: %v", err)
+			sendComplete(cfg, job.ExecutionID, CompletePayload{Status: "FAILED", Logs: errMsg, ErrorMessage: &errMsg})
+			return
+		}
 	}
 
 	entrypointPath, err := resolveSafePath(workingDir, job.Entrypoint)
@@ -315,7 +469,7 @@ func processJob(parentCtx context.Context, cfg *AgentConfig, job *Job) {
 			})
 			return
 		}
-		sha, err := cloneOrUpdateRepo(workingDir, *job.GitURL, job.GitBranch, job.GitToken)
+		sha, err := cloneOrUpdateRepo(ctx, workingDir, *job.GitURL, job.GitBranch, job.GitToken)
 		if err != nil {
 			errMsg := fmt.Sprintf("Falha ao sincronizar repositório Git: %v", err)
 			sendComplete(cfg, job.ExecutionID, CompletePayload{
@@ -332,7 +486,13 @@ func processJob(parentCtx context.Context, cfg *AgentConfig, job *Job) {
 		}
 	}
 
-	pythonBin, err := ensureVenv(autoDir, workingDir)
+	entrypointPath, err = resolveSafePath(workingDir, job.Entrypoint)
+	if err != nil {
+		msg := err.Error()
+		sendComplete(cfg, job.ExecutionID, CompletePayload{Status: "FAILED", ErrorMessage: &msg})
+		return
+	}
+	pythonBin, err := ensureVenv(ctx, autoDir, workingDir)
 	if err != nil {
 		errMsg := fmt.Sprintf("Falha ao preparar virtualenv na máquina '%s': %v", cfg.WorkerID, err)
 		sendComplete(cfg, job.ExecutionID, CompletePayload{
@@ -364,7 +524,7 @@ func processJob(parentCtx context.Context, cfg *AgentConfig, job *Job) {
 
 	// Loop de execução com suporte a Retries
 	for attempt := 0; attempt <= job.MaxRetries; attempt++ {
-		status, exitCode, logs, errMsg, wasCancelled := runPythonSubprocess(parentCtx, cfg, job, pythonBin, entrypointPath, workingDir, attempt)
+		status, exitCode, logs, errMsg, wasCancelled := runPythonSubprocess(ctx, cfg, job, pythonBin, entrypointPath, workingDir, runtimeDir, attempt)
 
 		// Limpeza pós-execução (Modo Efêmero) na última tentativa ou sucesso/cancelamento
 		isFinalAttempt := wasCancelled || status == "SUCCESS" || attempt >= job.MaxRetries
@@ -378,7 +538,12 @@ func processJob(parentCtx context.Context, cfg *AgentConfig, job *Job) {
 
 		if !isFinalAttempt {
 			log.Printf("[RETRY] Tentativa %d/%d para execução #%d falhou (%s). Aguardando %ds...", attempt+1, job.MaxRetries, job.ExecutionID, status, job.RetryDelaySeconds)
-			time.Sleep(time.Duration(job.RetryDelaySeconds) * time.Second)
+			select {
+			case <-ctx.Done():
+				sendComplete(cfg, job.ExecutionID, CompletePayload{Status: "CANCELLED", Logs: logs})
+				return
+			case <-time.After(time.Duration(job.RetryDelaySeconds) * time.Second):
+			}
 			continue
 		}
 
@@ -399,7 +564,7 @@ func runPythonSubprocess(
 	parentCtx context.Context,
 	cfg *AgentConfig,
 	job *Job,
-	pythonBin, entrypointPath, workingDir string,
+	pythonBin, entrypointPath, workingDir, runtimeDir string,
 	attempt int,
 ) (status string, exitCode int, logs string, errMsg *string, wasCancelled bool) {
 	timeout := time.Duration(job.TimeoutSeconds) * time.Second
@@ -419,13 +584,18 @@ func runPythonSubprocess(
 	cmd.Dir = workingDir
 
 	env := os.Environ()
-	env = append(env, fmt.Sprintf("PYTHONPATH=%s", workingDir))
+	pythonPath := strings.Join([]string{runtimeDir, workingDir}, string(os.PathListSeparator))
+	env = append(env,
+		fmt.Sprintf("PYTHONPATH=%s", pythonPath),
+		fmt.Sprintf("PYAUTOMATION_EXECUTION_ID=%d", job.ExecutionID),
+		fmt.Sprintf("PYAUTOMATION_RETRY_COUNT=%d", attempt),
+	)
 	for k, v := range job.EnvVars {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
-	cmd.Env = env
+	cmd.Env = append(env, "PYTHONUNBUFFERED=1", "PYTHONIOENCODING=utf-8")
 
-	var outBuf safeBuffer
+	outBuf := safeBuffer{limit: job.MaxLogSizeBytes}
 	outBuf.WriteString(fmt.Sprintf("[AGENTE REMOTO '%s'] Executando %s (tentativa %d)...\n", cfg.WorkerID, job.Entrypoint, attempt+1))
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &outBuf
@@ -467,7 +637,7 @@ func runPythonSubprocess(
 	wasCancelled = cancelledByServer
 	cancelMu.Unlock()
 
-	if wasCancelled {
+	if wasCancelled || errors.Is(parentCtx.Err(), context.Canceled) {
 		msg := "Execução cancelada pelo usuário."
 		outBuf.WriteString("\n[EXECUÇÃO CANCELADA PELO USUÁRIO]\n")
 		return "CANCELLED", -1, outBuf.String(), &msg, true
@@ -542,10 +712,17 @@ func executeHTTPJob(parentCtx context.Context, cfg *AgentConfig, job *Job) {
 
 	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
+		status := "FAILED"
+		if errors.Is(ctx.Err(), context.Canceled) {
+			status = "CANCELLED"
+		}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			status = "TIMEOUT"
+		}
 		msg := err.Error()
 		logs := fmt.Sprintf("[INÍCIO] Disparo HTTP (%s): %s %s\n[ERRO HTTP] %s", cfg.WorkerID, method, *job.HttpURL, msg)
 		sendComplete(cfg, job.ExecutionID, CompletePayload{
-			Status:       "FAILED",
+			Status:       status,
 			Logs:         logs,
 			ErrorMessage: &msg,
 		})
@@ -567,7 +744,7 @@ func executeHTTPJob(parentCtx context.Context, cfg *AgentConfig, job *Job) {
 	})
 }
 
-func cloneOrUpdateRepo(repoDir, gitURL, branch string, token *string) (string, error) {
+func cloneOrUpdateRepo(ctx context.Context, repoDir, gitURL, branch string, token *string) (string, error) {
 	if branch == "" {
 		branch = "main"
 	}
@@ -578,11 +755,11 @@ func cloneOrUpdateRepo(repoDir, gitURL, branch string, token *string) (string, e
 
 	gitDir := filepath.Join(repoDir, ".git")
 	if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
-		_ = runGit(repoDir, "remote", "set-url", "origin", authURL)
-		if err := runGit(repoDir, "fetch", "origin", branch); err == nil {
-			_ = runGit(repoDir, "checkout", branch)
-			if err := runGit(repoDir, "pull", "origin", branch); err == nil {
-				if sha, err := getGitOutput(repoDir, "rev-parse", "HEAD"); err == nil {
+		_ = runGit(ctx, repoDir, "remote", "set-url", "origin", authURL)
+		if err := runGit(ctx, repoDir, "fetch", "origin", branch); err == nil {
+			_ = runGit(ctx, repoDir, "checkout", branch)
+			if err := runGit(ctx, repoDir, "pull", "origin", branch); err == nil {
+				if sha, err := getGitOutput(ctx, repoDir, "rev-parse", "HEAD"); err == nil {
 					return sha, nil
 				}
 			}
@@ -593,34 +770,36 @@ func cloneOrUpdateRepo(repoDir, gitURL, branch string, token *string) (string, e
 	if err := os.MkdirAll(repoDir, 0755); err != nil {
 		return "", err
 	}
-	if err := runGit("", "clone", "--branch", branch, "--depth", "1", authURL, repoDir); err != nil {
+	if err := runGit(ctx, "", "clone", "--branch", branch, "--depth", "1", authURL, repoDir); err != nil {
 		_ = os.RemoveAll(repoDir)
 		return "", err
 	}
-	return getGitOutput(repoDir, "rev-parse", "HEAD")
+	return getGitOutput(ctx, repoDir, "rev-parse", "HEAD")
 }
 
-func runGit(cwd string, args ...string) error {
-	_, err := getGitOutput(cwd, args...)
+func runGit(ctx context.Context, cwd string, args ...string) error {
+	_, err := getGitOutput(ctx, cwd, args...)
 	return err
 }
 
-func getGitOutput(cwd string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+func getGitOutput(parentCtx context.Context, cwd string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(parentCtx, 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	out, err := cmd.CombinedOutput()
+	out, err := boundedCommandOutput(cmd)
 	if err != nil {
 		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
-func ensureVenv(autoDir, workingDir string) (string, error) {
+func ensureVenv(parentCtx context.Context, autoDir, workingDir string) (string, error) {
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Minute)
+	defer cancel()
 	venvDir := filepath.Join(autoDir, ".venv")
 	pythonBin := filepath.Join(venvDir, "bin", "python")
 	if runtime.GOOS == "windows" {
@@ -635,13 +814,13 @@ func ensureVenv(autoDir, workingDir string) (string, error) {
 	venvCreated := false
 	if _, err := os.Stat(pythonBin); err != nil {
 		if hasUv {
-			cmd := exec.Command("uv", "venv", venvDir)
-			if out, err := cmd.CombinedOutput(); err != nil {
+			cmd := exec.CommandContext(ctx, "uv", "venv", venvDir)
+			if out, err := boundedCommandOutput(cmd); err != nil {
 				return "", fmt.Errorf("uv venv falhou: %v (%s)", err, string(out))
 			}
 		} else {
-			cmd := exec.Command("python", "-m", "venv", venvDir)
-			if out, err := cmd.CombinedOutput(); err != nil {
+			cmd := exec.CommandContext(ctx, "python", "-m", "venv", venvDir)
+			if out, err := boundedCommandOutput(cmd); err != nil {
 				return "", fmt.Errorf("python -m venv falhou: %v (%s)", err, string(out))
 			}
 		}
@@ -674,7 +853,6 @@ func ensureVenv(autoDir, workingDir string) (string, error) {
 		}
 	}
 
-	allOK := true
 	for _, key := range []string{"pyproject", "requirements"} {
 		depPath, ok := depFiles[key]
 		if !ok {
@@ -682,22 +860,22 @@ func ensureVenv(autoDir, workingDir string) (string, error) {
 		}
 		var cmd *exec.Cmd
 		if hasUv {
-			cmd = exec.Command("uv", "pip", "install", "--python", pythonBin, "-r", depPath)
+			cmd = exec.CommandContext(ctx, "uv", "pip", "install", "--python", pythonBin, "-r", depPath)
 		} else {
 			if key == "requirements" {
-				cmd = exec.Command(pythonBin, "-m", "pip", "install", "-r", depPath)
+				cmd = exec.CommandContext(ctx, pythonBin, "-m", "pip", "install", "-r", depPath)
 			} else {
-				cmd = exec.Command(pythonBin, "-m", "pip", "install", filepath.Dir(depPath))
+				cmd = exec.CommandContext(ctx, pythonBin, "-m", "pip", "install", filepath.Dir(depPath))
 			}
 		}
-		if out, err := cmd.CombinedOutput(); err != nil {
-			allOK = false
-			log.Printf("[AVISO] Falha ao instalar dependências de %s: %v (%s)", depPath, err, string(out))
+		cmd.Dir = workingDir
+		if out, err := boundedCommandOutput(cmd); err != nil {
+			return "", fmt.Errorf("falha ao instalar dependências de %s: %v (%s)", depPath, err, string(out))
 		}
 	}
 
-	if allOK {
-		_ = os.WriteFile(hashFile, []byte(currentHash), 0644)
+	if err := os.WriteFile(hashFile, []byte(currentHash), 0644); err != nil {
+		return "", err
 	}
 	return pythonBin, nil
 }
@@ -745,4 +923,11 @@ func splitArgs(input string) []string {
 		args = append(args, current.String())
 	}
 	return args
+}
+
+func boundedCommandOutput(cmd *exec.Cmd) ([]byte, error) {
+	var output safeBuffer
+	cmd.Stdout, cmd.Stderr = &output, &output
+	err := cmd.Run()
+	return []byte(output.String()), err
 }

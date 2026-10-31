@@ -1,4 +1,6 @@
 import logging
+import os
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -22,6 +24,7 @@ jobstores = {
 }
 
 scheduler = BackgroundScheduler(jobstores=jobstores, timezone=settings.TIMEZONE)
+_scheduler_lock = None
 
 def _job_listener(event):
     """Atualiza a coluna next_run_at no banco de dados após a execução de um agendamento."""
@@ -35,7 +38,7 @@ def _job_listener(event):
         with SessionLocal() as db:
             auto = db.query(Automation).filter(Automation.id == automation_id).first()
             if auto:
-                auto.next_run_at = next_run
+                auto.next_run_at = next_run.astimezone(timezone.utc) if next_run else None
                 db.commit()
     except Exception as e:
         logger.debug(f"Aviso ao atualizar next_run_at no listener para {job_id}: {e}")
@@ -45,19 +48,55 @@ scheduler.add_listener(
     EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MISSED,
 )
 
+def _lock_scheduler():
+    global _scheduler_lock
+    with SessionLocal() as db:
+        db_path = Path(db.get_bind().url.database)
+    handle = open(db_path.with_suffix(".scheduler.lock"), "a+b")
+    try:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"0")
+            handle.flush()
+        handle.seek(0)
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        handle.close()
+        raise RuntimeError("Já existe um agendador para este banco. Desative RUN_SCHEDULER_IN_WEB ao usar worker separado.") from exc
+    _scheduler_lock = handle
+
+
 def start_scheduler():
-    """Inicia o agendador se ainda não estiver em execução."""
-    if not scheduler.running:
-        logger.info("Iniciando motor APScheduler...")
-        scheduler.start()
-        # Sincronizar automações ativas com o banco
+    if scheduler.running:
+        return
+    _lock_scheduler()
+    try:
+        scheduler.start(paused=True)
         sync_all_automations()
+        scheduler.add_job(sync_all_automations, "interval", seconds=2,
+                          id="reconcile_automations", replace_existing=True,
+                          max_instances=1, coalesce=True)
+        scheduler.resume()
+    except Exception:
+        shutdown_scheduler()
+        raise
+
 
 def shutdown_scheduler():
-    """Finaliza o agendador graciosamente."""
-    if scheduler.running:
-        logger.info("Encerrando motor APScheduler...")
-        scheduler.shutdown(wait=False)
+    global _scheduler_lock
+    try:
+        if scheduler.running:
+            scheduler.shutdown(wait=True)
+    finally:
+        if _scheduler_lock:
+            _scheduler_lock.close()
+            _scheduler_lock = None
+
 
 def get_job_id(automation_id: int) -> str:
     return f"auto_job_{automation_id}"
@@ -68,7 +107,7 @@ def sync_automation_job(automation: Automation) -> Optional[datetime]:
 
     # Remover job existente se desativado ou sem agendamento
     if automation.status in ["disabled", "paused"] or automation.trigger_type in ["none", None]:
-        if scheduler.get_job(job_id):
+        if scheduler.running and scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
             logger.info(f"Job {job_id} removido do APScheduler.")
         return None
@@ -90,6 +129,16 @@ def sync_automation_job(automation: Automation) -> Optional[datetime]:
     if not trigger:
         return None
 
+    # A web sem scheduler calcula a previsão; o processo proprietário reconcilia o banco.
+    if not scheduler.running:
+        next_run = trigger.get_next_fire_time(None, datetime.now(timezone.utc))
+        return next_run.astimezone(timezone.utc) if next_run else None
+    existing = scheduler.get_job(job_id)
+    if existing and str(existing.trigger) == str(trigger):
+        if existing.name != automation.name:
+            existing.modify(name=automation.name)
+        return existing.next_run_time.astimezone(timezone.utc) if existing.next_run_time else None
+
     # Adicionar ou substituir job
     from app.services.executor import run_automation_job
 
@@ -105,7 +154,7 @@ def sync_automation_job(automation: Automation) -> Optional[datetime]:
 
     next_run = job.next_run_time
     logger.info(f"Job {job_id} configurado. Próxima execução: {next_run}")
-    return next_run
+    return next_run.astimezone(timezone.utc) if next_run else None
 
 def pause_automation_job(automation_id: int):
     job_id = get_job_id(automation_id)
@@ -126,14 +175,19 @@ def remove_automation_job(automation_id: int):
         logger.info(f"Job {job_id} removido.")
 
 def sync_all_automations():
-    """Garante que todas as automações ativas com agendamento estejam no APScheduler."""
+    """Reconcilia alterações da web sem compartilhar schedulers entre processos."""
+    from app.services.executor import cleanup_orphaned_executions
+    cleanup_orphaned_executions()
     with SessionLocal() as db:
-        automations = db.query(Automation).filter(Automation.status == "active").all()
+        automations = db.query(Automation).all()
+        known = {get_job_id(auto.id) for auto in automations}
+        for job in scheduler.get_jobs():
+            if job.id.startswith("auto_job_") and job.id not in known:
+                scheduler.remove_job(job.id)
         for auto in automations:
             try:
                 next_run = sync_automation_job(auto)
-                if next_run:
-                    auto.next_run_at = next_run
-            except Exception as e:
-                logger.error(f"Erro ao sincronizar job para automação {auto.id}: {e}")
+                auto.next_run_at = next_run
+            except (ValueError, TypeError) as exc:
+                logger.error("Erro ao sincronizar automação %s: %s", auto.id, exc)
         db.commit()

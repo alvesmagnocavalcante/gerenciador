@@ -1,3 +1,4 @@
+from datetime import datetime, timezone, timedelta
 import time
 from pathlib import Path
 from app.core.security import sanitize_output, resolve_safe_path
@@ -116,7 +117,7 @@ def test_prevent_duplicate_concurrent_run(db_session):
 
     assert exec_record.status == "SUCCESS"
 
-def test_auto_install_pyproject_dependencies(db_session):
+def test_auto_install_pyproject_dependencies(db_session, monkeypatch):
     auto = Automation(
         name="Teste Pyproject Deps",
         source_type="local",
@@ -129,18 +130,19 @@ def test_auto_install_pyproject_dependencies(db_session):
     db_session.refresh(auto)
 
     auto_dir = get_automation_dir(auto.id)
-    # Criar um pyproject.toml com uma dependência leve pura python
-    pyproject = auto_dir / "pyproject.toml"
-    pyproject.write_text("""[project]
-name = "test-pkg"
-version = "0.1.0"
-dependencies = [
-    "markupsafe>=2.0.0",
-]
-""", encoding="utf-8")
-
-    script_file = auto_dir / "test_dep.py"
-    script_file.write_text("import markupsafe\nprint('MARKUPSAFE_INSTALLED')\n", encoding="utf-8")
+    # Instalação real de wheel local, sem dependência de rede.
+    wheel = auto_dir / "review_dependency-1.0-py3-none-any.whl"
+    import zipfile
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("review_dependency/__init__.py", "VALUE = 42\n")
+        prefix = "review_dependency-1.0.dist-info/"
+        archive.writestr(prefix + "METADATA", "Metadata-Version: 2.1\nName: review-dependency\nVersion: 1.0\n")
+        archive.writestr(prefix + "WHEEL", "Wheel-Version: 1.0\nGenerator: tests\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
+        archive.writestr(prefix + "RECORD", "")
+    (auto_dir / "pyproject.toml").write_text(
+        '[project]\nname="test-pkg"\nversion="0.1.0"\ndependencies=["review-dependency @ ' + wheel.as_uri() + '"]\n', encoding="utf-8")
+    (auto_dir / "test_dep.py").write_text("import review_dependency\nassert review_dependency.VALUE == 42\nprint('LOCAL_DEP_INSTALLED')\n", encoding="utf-8")
+    monkeypatch.setenv("UV_OFFLINE", "true")
 
     exec_id = run_automation_job(auto.id, trigger_type="manual")
     assert exec_id is not None
@@ -153,7 +155,7 @@ dependencies = [
             break
 
     assert exec_record.status == "SUCCESS"
-    assert "MARKUPSAFE_INSTALLED" in exec_record.logs
+    assert "LOCAL_DEP_INSTALLED" in exec_record.logs
     # Verifica que o arquivo de cache de hash das dependências foi criado
     assert (auto_dir / ".venv" / ".deps_hash").is_file()
 
@@ -368,6 +370,7 @@ def test_cleanup_orphaned_executions_and_delete_files(db_session):
         automation_id=auto.id,
         trigger_type="scheduled",
         status="RUNNING",
+        started_at=datetime.now(timezone.utc) - timedelta(hours=1),
         logs="Iniciando antes de queda...",
     )
     db_session.add(orphan)
@@ -379,7 +382,7 @@ def test_cleanup_orphaned_executions_and_delete_files(db_session):
 
     db_session.refresh(orphan)
     assert orphan.status == "FAILED"
-    assert "reinicialização" in orphan.error_message
+    assert "expirada" in orphan.error_message
 
     assert auto_dir.exists()
     delete_automation_files(auto.id)
