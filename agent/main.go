@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -179,27 +178,18 @@ type AgentConfig struct {
 	Client    *http.Client
 }
 
-func getEnvOrDefault(key, fallback string) string {
-	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-		return v
-	}
-	return fallback
-}
-
 func main() {
-	hostname, _ := os.Hostname()
-	if hostname == "" {
-		hostname = "worker-01"
+	options, err := startupAgent(os.Args[1:], os.Stdin, os.Stdout)
+	if errors.Is(err, errSetupCancelled) {
+		return
+	}
+	if err != nil {
+		log.Printf("Erro ao configurar agente: %v", err)
+		pauseOnStartupError()
+		os.Exit(1)
 	}
 
-	serverFlag := flag.String("server", getEnvOrDefault("PYAUTO_SERVER", "http://localhost:8000"), "URL do servidor PyAutomation Manager")
-	keyFlag := flag.String("key", getEnvOrDefault("PYAUTO_KEY", ""), "Chave de API (X-API-Key)")
-	workerFlag := flag.String("worker", getEnvOrDefault("PYAUTO_WORKER", hostname), "Nome identificador desta máquina/worker")
-	workDirFlag := flag.String("workdir", getEnvOrDefault("PYAUTO_WORKDIR", "./worker_data"), "Diretório local para venvs e repositórios")
-	intervalFlag := flag.Int("interval", 3, "Intervalo de polling em segundos")
-	flag.Parse()
-
-	absWorkDir, err := filepath.Abs(*workDirFlag)
+	absWorkDir, err := filepath.Abs(options.WorkDir)
 	if err != nil {
 		log.Fatalf("Erro ao resolver diretório de trabalho: %v", err)
 	}
@@ -208,11 +198,11 @@ func main() {
 	}
 
 	cfg := &AgentConfig{
-		ServerURL: strings.TrimRight(strings.TrimSpace(*serverFlag), "/"),
-		APIKey:    strings.TrimSpace(*keyFlag),
-		WorkerID:  strings.TrimSpace(*workerFlag),
+		ServerURL: options.ServerURL,
+		APIKey:    options.APIKey,
+		WorkerID:  options.WorkerID,
 		WorkDir:   absWorkDir,
-		Interval:  time.Duration(*intervalFlag) * time.Second,
+		Interval:  time.Duration(options.Interval) * time.Second,
 		Client:    &http.Client{Timeout: 30 * time.Second},
 	}
 

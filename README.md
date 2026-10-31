@@ -231,9 +231,11 @@ uv run alembic upgrade head
 
 ### 4. Iniciar o Servidor Web
 ```powershell
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --host 0.0.0.0 --reload --port 8000
 ```
-*(Ou diretamente pelo executável da venv: `.\.venv\Scripts\uvicorn.exe app.main:app --reload --port 8000`)*
+*(Ou diretamente pelo executável da venv: `.\.venv\Scripts\uvicorn.exe app.main:app --host 0.0.0.0 --reload --port 8000`)*
+
+O parâmetro `--host 0.0.0.0` permite acesso pelas interfaces de rede do servidor. Sem ele, o Uvicorn aceita apenas conexões locais (`127.0.0.1`). Em outros computadores, use `http://IP-DO-SERVIDOR:8000`. Se iniciar com `uv run python main.py`, a aplicação já usa `0.0.0.0`, mas na porta **8001**; nesse caso, use `http://IP-DO-SERVIDOR:8001`.
 
 Acesse no navegador:
 - **Painel Web:** `http://localhost:8000` (usuário de `ADMIN_USERNAME` e senha de `ADMIN_PASSWORD` no primeiro cadastro)
@@ -250,10 +252,10 @@ O executável `agent/pyautomation-agent.exe` já pode ser gerado com um único c
 
 ```powershell
 # Compilar para Windows (.exe)
-go build -C agent -ldflags="-s -w" -o pyautomation-agent.exe main.go
+go build -C agent -ldflags="-s -w" -o pyautomation-agent.exe .
 
 # Ou compilar para Linux
-GOOS=linux GOARCH=amd64 go build -C agent -ldflags="-s -w" -o pyautomation-agent main.go
+GOOS=linux GOARCH=amd64 go build -C agent -ldflags="-s -w" -o pyautomation-agent .
 ```
 
 ### 2. Configurar a Automação no Painel Web
@@ -264,13 +266,28 @@ pc-financeiro
 *(Deixe como `local` para as automações que devem continuar rodando no servidor principal).*
 
 ### 3. Executar o `pyautomation-agent.exe` na Máquina Específica
-Copie apenas o arquivo `pyautomation-agent.exe` para a máquina desejada (que deve ter Python/uv instalados para rodar os scripts) e execute:
+Copie apenas o arquivo `pyautomation-agent.exe` para a máquina desejada (que deve ter Python/uv instalados para rodar os scripts) e **abra com dois cliques**. Na primeira abertura, o assistente no console solicita:
+
+1. **URL do servidor:** endereço usado para acessar o gerenciador, com protocolo e porta. Ex.: `http://192.168.1.10:8001`. `localhost` só funciona se o servidor estiver no mesmo computador. Se iniciado por `uv run python main.py`, o servidor usa a porta **8001**; o comando Uvicorn da seção anterior usa **8000**.
+2. **Chave de API:** valor de `API_KEY` no `.env` do servidor. A digitação fica oculta.
+3. **Nome da máquina/worker:** sugere o nome do computador. Use o mesmo valor em **Máquina / Worker Alvo** no painel.
+4. **Pasta de trabalho:** sugere uma pasta no perfil do usuário para armazenar repositórios e ambientes virtuais.
+
+O assistente verifica conexão e autenticação sem buscar tarefas. A configuração só é salva após essa verificação e o agente inicia em seguida. Em caso de falha, permite corrigir os campos ou sair.
+
+A configuração fica em `%APPDATA%\PyAutomation\agent.json`. A chave é protegida pela **DPAPI do Windows**, vinculada ao usuário que a configurou. Não copie esse arquivo para outros usuários/computadores; configure o executável em cada destino.
+
+Nas próximas aberturas, pressione **Enter** para iniciar, **C** para configurar novamente ou **S** para sair. Também é possível abrir diretamente o assistente com `.\pyautomation-agent.exe -configure`.
+
+Para serviços e execução automatizada, os parâmetros existentes continuam disponíveis, sem assistente. Em Linux, utilize parâmetros ou variáveis de ambiente:
 
 ```powershell
 .\pyautomation-agent.exe -server http://IP-DO-SERVIDOR:8000 -key sua-chave-secreta-para-workers-e-api -worker pc-financeiro
 ```
 
 Você também pode configurar via variáveis de ambiente (`PYAUTO_SERVER`, `PYAUTO_KEY`, `PYAUTO_WORKER`, `PYAUTO_WORKDIR`):
+
+Precedência: **parâmetros > variáveis de ambiente > configuração salva > padrões**. Parâmetros e variáveis não alteram o arquivo salvo, exceto quando o assistente é solicitado com `-configure`. Sem parâmetros, definir `PYAUTO_SERVER` evita o menu interativo.
 
 | Parâmetro | Variável de Ambiente | Padrão | Descrição |
 |---|---|---|---|
@@ -279,6 +296,7 @@ Você também pode configurar via variáveis de ambiente (`PYAUTO_SERVER`, `PYAU
 | `-worker` | `PYAUTO_WORKER` | *Hostname do SO* | Nome da máquina (deve coincidir com **Máquina / Worker Alvo**) |
 | `-workdir` | `PYAUTO_WORKDIR` | `./worker_data` | Pasta local onde o agente criará as `.venv` e clonará repositórios |
 | `-interval` | - | `3` | Intervalo em segundos entre cada consulta ao servidor |
+| `-configure` | - | `false` | Abre o assistente de configuração no Windows |
 
 **O que o Agente Go faz automaticamente:**
 1. Consulta `POST /api/worker/poll?worker_name=pc-financeiro`.
