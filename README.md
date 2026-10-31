@@ -48,7 +48,7 @@ Não se limita a RPA! Como cada automação roda em sua própria virtualenv isol
   - Controle de concorrência por automação (em memória e via banco) e limite global de execuções simultâneas (`MAX_CONCURRENT_EXECUTIONS`).
   - Cancelamento imediato de execuções em andamento (localmente ou em máquinas remotas via heartbeat) sem disparar retries indevidos.
   - Recuperação de execuções abandonadas por expiração de heartbeat, preservando tarefas ativas em outros processos e tarefas remotas na fila.
-- **Dashboard & Logs em Tempo Real:** Interface reativa com Jinja2, HTMX (polling automático a cada 1s enquanto a execução está rodando) e Tailwind CSS (com suporte a Dark Mode).
+- **Dashboard & Logs em Tempo Real:** Interface responsiva com sidebar recolhível, temas claro/escuro, Jinja2 e HTMX. O detalhe da execução atualiza logs e estados automaticamente enquanto o processo está ativo; o dashboard também exibe brevemente o resultado final antes de remover o card de acompanhamento.
 - **Progresso Estruturado em Tempo Real:** Barra percentual, etapa atual e tempo decorrido para scripts locais e agentes remotos. Sem evento estruturado, o painel mostra progresso indeterminado.
 
 ### Acompanhando funções com RunTrail
@@ -247,6 +247,34 @@ Acesse no navegador:
 
 Quando você precisa que uma automação rode em um computador específico (ex: máquina do Financeiro com certificado A3, VM com ERP local ou servidor dedicado):
 
+### Pré-requisitos da Máquina do Agente
+
+O `pyautomation-agent.exe` é autocontido, mas as ferramentas usadas pelas automações precisam estar disponíveis no `PATH` da conta que inicia o agente:
+
+| Ferramenta | Quando é necessária |
+|---|---|
+| **Python 3.12+** | Para executar automações Python e criar a `.venv` quando `uv` não estiver disponível |
+| **uv** | Recomendado para criar a `.venv` e instalar dependências com maior velocidade; o agente usa `python -m venv` e `pip` como fallback |
+| **Git** | Apenas para automações cuja origem é um repositório Git; scripts locais e chamadas HTTP não dependem dele |
+
+No Windows, instale com:
+
+```powershell
+winget install --id Python.Python.3.12 -e
+winget install --id astral-sh.uv -e
+winget install --id Git.Git -e
+```
+
+Feche e abra novamente o terminal após a instalação e valide:
+
+```powershell
+python --version
+uv --version
+git --version
+```
+
+Se o agente for executado como serviço ou pelo Agendador de Tarefas, valide esses comandos usando a mesma conta do processo. Depois de instalar ou alterar o `PATH`, reinicie o agente para que ele receba o novo ambiente.
+
 ### 1. Compilar o Agente (se necessário)
 O executável `agent/pyautomation-agent.exe` já pode ser gerado com um único comando (sem dependências externas):
 
@@ -266,7 +294,7 @@ pc-financeiro
 *(Deixe como `local` para as automações que devem continuar rodando no servidor principal).*
 
 ### 3. Executar o `pyautomation-agent.exe` na Máquina Específica
-Copie apenas o arquivo `pyautomation-agent.exe` para a máquina desejada (que deve ter Python/uv instalados para rodar os scripts) e **abra com dois cliques**. Na primeira abertura, o assistente no console solicita:
+Copie o arquivo `pyautomation-agent.exe` para a máquina desejada, confirme os pré-requisitos acima e **abra com dois cliques**. Na primeira abertura, o assistente no console solicita:
 
 1. **URL do servidor:** endereço usado para acessar o gerenciador, com protocolo e porta. Ex.: `http://192.168.1.10:8001`. `localhost` só funciona se o servidor estiver no mesmo computador. Se iniciado por `uv run python main.py`, o servidor usa a porta **8001**; o comando Uvicorn da seção anterior usa **8000**.
 2. **Chave de API:** valor de `API_KEY` no `.env` do servidor. A digitação fica oculta.
