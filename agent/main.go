@@ -207,7 +207,7 @@ func main() {
 	}
 
 	log.Printf("====================================================")
-	log.Printf("PyAutomation Remote Agent (Go) iniciado!")
+	log.Printf("Ongma Remote Agent iniciado!")
 	log.Printf("Worker ID : %s", cfg.WorkerID)
 	log.Printf("Servidor  : %s", cfg.ServerURL)
 	log.Printf("WorkDir   : %s", cfg.WorkDir)

@@ -87,7 +87,7 @@ func parseAgentSettings(args []string, saved agentSettings, hostname string, get
 	flags := flag.NewFlagSet("pyautomation-agent", flag.ContinueOnError)
 	flags.SetOutput(output)
 	// Valores são aplicados depois do parse para a ajuda nunca exibir secrets.
-	server := flags.String("server", "", "URL do servidor PyAutomation Manager")
+	server := flags.String("server", "", "URL do servidor Ongma")
 	key := flags.String("key", "", "Chave de API (X-API-Key)")
 	worker := flags.String("worker", "", "Nome identificador desta máquina/worker")
 	workdir := flags.String("workdir", "", "Diretório local para venvs e repositórios")
@@ -171,7 +171,7 @@ func checkAgentConnection(ctx context.Context, settings agentSettings, client *h
 	}
 	token, err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Token()
 	if err != nil || token != json.Delim('[') {
-		return errors.New("resposta inesperada; confira se a URL pertence ao PyAutomation Manager")
+		return errors.New("resposta inesperada; confira se a URL pertence à Ongma")
 	}
 	return nil
 }
@@ -193,7 +193,7 @@ func promptSetting(reader *bufio.Reader, output io.Writer, label, current string
 }
 
 func configureAgent(reader *bufio.Reader, output io.Writer, settings agentSettings, readKey func() (string, error), check func(agentSettings) error) (agentSettings, error) {
-	fmt.Fprintln(output, "\n=== Configuração do PyAutomation Agent ===")
+	fmt.Fprintln(output, "\n=== Configuração do Ongma Agent ===")
 	fmt.Fprintln(output, "Informe a URL usada para acessar o gerenciador (ex.: http://192.168.1.10:8001).")
 	fmt.Fprintln(output, "Use localhost apenas se o gerenciador estiver neste computador.")
 	for {

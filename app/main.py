@@ -23,7 +23,7 @@ logger = logging.getLogger("pyautomation")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Inicializando PyAutomation Manager...")
+    logger.info("Inicializando Ongma...")
     init_db()
     cleanup_orphaned_executions()
     start_executor()
@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
         if settings.RUN_SCHEDULER_IN_WEB:
             shutdown_scheduler()
         stop_executor()
-    logger.info("PyAutomation Manager finalizado.")
+    logger.info("Ongma finalizada.")
 
 def create_app() -> FastAPI:
     app = FastAPI(

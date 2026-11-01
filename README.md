@@ -1,4 +1,4 @@
-# PyAutomation Manager ⚡
+# Ongma
 
 Plataforma moderna, segura e enxuta para centralizar, executar, agendar e monitorar automações Python e integrações HTTP, desenvolvida como uma alternativa prática, leve e auto-hospedada ao Prefect/Airflow — incluindo um **Agente Remoto em Go (`.exe`)** para rodar automações em máquinas específicas.
 
@@ -6,9 +6,9 @@ Plataforma moderna, segura e enxuta para centralizar, executar, agendar e monito
 
 ## 🎯 Objetivo & Filosofia
 
-O **PyAutomation Manager** foi projetado seguindo os princípios **KISS**, **DRY** e **YAGNI**, priorizando simplicidade de operação, desempenho e segurança sem dependências pesadas de infraestrutura (dispensando inicialmente Celery, Redis, Kubernetes ou filas externas).
+O **Ongma** foi projetado seguindo os princípios **KISS**, **DRY** e **YAGNI**, priorizando simplicidade de operação, desempenho e segurança sem dependências pesadas de infraestrutura (dispensando inicialmente Celery, Redis, Kubernetes ou filas externas).
 
-### O que você pode rodar no PyAutomation Manager?
+### O que você pode rodar na Ongma?
 Não se limita a RPA! Como cada automação roda em sua própria virtualenv isolada (`.venv`), você pode orquestrar:
 - **ETL & Pipelines de Dados:** Extração de bancos SQL, processamento com `pandas`/`polars` e carga em Data Warehouses ou planilhas.
 - **RPA & Web Scraping:** Coleta de dados e automação de portais via `Playwright`, `Selenium` (headless ou local em máquina específica), `BeautifulSoup` ou `httpx`.
@@ -172,7 +172,7 @@ gerenciador/
 Crie um arquivo `.env` na raiz do projeto:
 
 ```env
-PROJECT_NAME="PyAutomation Manager"
+PROJECT_NAME="Ongma"
 SECRET_KEY="gere-uma-chave-aleatoria-exclusiva-com-pelo-menos-32-caracteres"
 API_KEY="sua-chave-secreta-para-workers-e-api"
 ADMIN_USERNAME="admin"
@@ -319,7 +319,7 @@ Precedência: **parâmetros > variáveis de ambiente > configuração salva > pa
 
 | Parâmetro | Variável de Ambiente | Padrão | Descrição |
 |---|---|---|---|
-| `-server` | `PYAUTO_SERVER` | `http://localhost:8000` | URL base do PyAutomation Manager central |
+| `-server` | `PYAUTO_SERVER` | `http://localhost:8000` | URL base do servidor central da Ongma |
 | `-key` | `PYAUTO_KEY` | *(vazio)* | Valor configurado em `API_KEY` no `.env` do servidor |
 | `-worker` | `PYAUTO_WORKER` | *Hostname do SO* | Nome da máquina (deve coincidir com **Máquina / Worker Alvo**) |
 | `-workdir` | `PYAUTO_WORKDIR` | `./worker_data` | Pasta local onde o agente criará as `.venv` e clonará repositórios |

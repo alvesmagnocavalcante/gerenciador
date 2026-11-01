@@ -20,7 +20,7 @@ def handle_exit(signum, frame):
     sys.exit(0)
 
 def main():
-    logger.info("Iniciando Worker de Agendamento do PyAutomation...")
+    logger.info("Iniciando worker de agendamento da Ongma...")
     init_db()
     cleanup_orphaned_executions()
     start_executor()

@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#09090b">
-    <title>{% block title %}PyAutomation Manager{% endblock %}</title>
+    <title>{% block title %}Ongma{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="/static/ongma-mark.svg">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = { darkMode: 'class', theme: { extend: {
@@ -30,9 +31,9 @@
         <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
         <aside id="app-sidebar" class="app-sidebar" aria-label="Navegação principal">
             <div class="brand-lockup">
-                <a href="/" class="brand-mark" aria-label="PyAutomation — início">
-                    <span class="brand-symbol"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4.8 13.2a1 1 0 0 0 .8 1.6h5.1L10 22l8.2-11.2a1 1 0 0 0-.8-1.6h-5.1L13 2Z"/></svg></span>
-                    <span><strong>PyAutomation</strong><small>Control Center</small></span>
+                <a href="/" class="brand-mark" aria-label="Ongma — início">
+                    <span class="brand-symbol"><img src="/static/ongma-mark.svg" alt="" aria-hidden="true"></span>
+                    <span><strong>Ongma</strong><small>Automation Hub</small></span>
                 </a>
                 <button id="sidebar-collapse" class="sidebar-collapse" type="button" aria-label="Recolher menu" aria-expanded="true" title="Recolher menu">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 7-5 5 5 5"/></svg>
@@ -72,7 +73,7 @@
                 </div>
             </header>
             <main class="app-content">{{ rendered_content | safe }}</main>
-            <footer class="app-footer"><span>PyAutomation Manager</span><span>Orquestração simples, observabilidade real.</span></footer>
+            <footer class="app-footer"><span>Ongma</span><span>Orquestração simples, observabilidade real.</span></footer>
         </div>
     </div>
     {% else %}

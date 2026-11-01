@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", extra="ignore", hide_input_in_errors=True)
 
-    PROJECT_NAME: str = "PyAutomation Manager"
+    PROJECT_NAME: str = "Ongma"
     SECRET_KEY: str = Field(min_length=32)
     API_KEY: Optional[str] = None
     DEBUG: bool = False

@@ -9,6 +9,8 @@ from app.services.executor import get_automation_dir
 def test_login_flow(client):
     login_page = client.get("/login")
     assert login_page.status_code == 200
+    assert "Entrar — Ongma" in login_page.text
+    assert '/static/ongma-mark.svg' in login_page.text
     assert 'value="admin123"' not in login_page.text
     assert "Padrão inicial" not in login_page.text
     assert ">admin123<" not in login_page.text
@@ -40,6 +42,7 @@ def test_session_token_expiration():
 def test_dashboard_authenticated(auth_client):
     resp = auth_client.get("/")
     assert resp.status_code == 200
+    assert "Ongma" in resp.text
     assert "Visão Geral" in resp.text
     assert "Total Automações" in resp.text
     assert 'id="sidebar-collapse"' in resp.text
