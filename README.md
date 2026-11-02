@@ -178,7 +178,7 @@ PROJECT_NAME="Ongma"
 SECRET_KEY="gere-uma-chave-aleatoria-exclusiva-com-pelo-menos-32-caracteres"
 API_KEY="sua-chave-secreta-para-workers-e-api"
 ADMIN_USERNAME="admin"
-ADMIN_PASSWORD="defina-uma-senha-exclusiva-com-pelo-menos-12-caracteres"
+ADMIN_PASSWORD="defina-uma-senha-exclusiva-com-pelo-menos-8-caracteres"
 TIMEZONE="America/Sao_Paulo"
 MAX_CONCURRENT_EXECUTIONS=5
 DEFAULT_TIMEOUT_SECONDS=3600
@@ -233,7 +233,7 @@ Copy-Item .env.example .env
 uv run python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Preencha pelo menos `SECRET_KEY`, `ADMIN_PASSWORD` e `API_KEY` no `.env`. A senha do administrador deve ter no mínimo 12 caracteres.
+Preencha pelo menos `SECRET_KEY`, `ADMIN_PASSWORD` e `API_KEY` no `.env`. A senha do administrador deve ter no mínimo 8 caracteres.
 
 2. Inicie a aplicação:
 

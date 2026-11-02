@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # Autenticação Padrão Inicial
     ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD: Optional[str] = Field(default=None, min_length=12)
+    ADMIN_PASSWORD: Optional[str] = Field(default=None, min_length=8)
 
     @field_validator("SECRET_KEY")
     @classmethod

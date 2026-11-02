@@ -82,7 +82,7 @@ def init_db():
         admin_user = db.query(User).filter(User.username == settings.ADMIN_USERNAME).first()
         if not admin_user:
             if not settings.ADMIN_PASSWORD:
-                raise RuntimeError("Defina ADMIN_PASSWORD (mínimo 12 caracteres) para criar o administrador.")
+                raise RuntimeError("Defina ADMIN_PASSWORD (mínimo 8 caracteres) para criar o administrador.")
             admin_user = User(
                 username=settings.ADMIN_USERNAME,
                 password_hash=hash_password(settings.ADMIN_PASSWORD),

@@ -256,6 +256,22 @@ def test_insecure_settings_and_legacy_sessions_are_rejected(monkeypatch):
     assert verify_session(sign_session("testadmin", timestamp=int(time.time()) + 3600)) is None
 
 
+def test_admin_password_requires_at_least_eight_characters():
+    config = Settings(
+        _env_file=None,
+        SECRET_KEY="random-secret-key-for-settings-test-1234567890",
+        ADMIN_PASSWORD="12345678",
+    )
+    assert config.ADMIN_PASSWORD == "12345678"
+
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            SECRET_KEY="random-secret-key-for-settings-test-1234567890",
+            ADMIN_PASSWORD="1234567",
+        )
+
+
 def test_scheduler_disabled_in_web_does_not_create_pending_jobs(monkeypatch):
     from apscheduler.schedulers.background import BackgroundScheduler
     from app.services import scheduler as service
