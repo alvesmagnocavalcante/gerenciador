@@ -5,6 +5,7 @@
 .env
 .env.*
 !.env.example
+!uv.lock
 .venv
 .pytest_cache
 .test-artifacts
@@ -14,7 +15,6 @@ __pycache__
 *.db
 *.db-wal
 *.db-shm
-*.lock
 build
 dist
 wheels
