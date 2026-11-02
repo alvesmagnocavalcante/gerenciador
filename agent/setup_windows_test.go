@@ -47,11 +47,14 @@ func TestSavedKeyUsesWindowsDPAPIAndCanBeReplaced(t *testing.T) {
 
 func TestStartupSavedConfigAndExplicitOverridesWithoutConsole(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
-	for _, key := range []string{"PYAUTO_SERVER", "PYAUTO_KEY", "PYAUTO_WORKER", "PYAUTO_WORKDIR"} {
+	for _, key := range []string{
+		"ONGMA_SERVER", "ONGMA_KEY", "ONGMA_WORKER", "ONGMA_WORKDIR",
+		"PYAUTO_SERVER", "PYAUTO_KEY", "PYAUTO_WORKER", "PYAUTO_WORKDIR",
+	} {
 		t.Setenv(key, "")
 	}
 	saved := validSettings()
-	path := filepath.Join(os.Getenv("APPDATA"), "PyAutomation", "agent.json")
+	path := filepath.Join(os.Getenv("APPDATA"), agentConfigDirectory, "agent.json")
 	if err := saveAgentSettings(path, saved); err != nil {
 		t.Fatal(err)
 	}

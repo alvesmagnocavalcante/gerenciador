@@ -1,6 +1,6 @@
 # Ongma
 
-Plataforma moderna, segura e enxuta para centralizar, executar, agendar e monitorar automações Python e integrações HTTP, desenvolvida como uma alternativa prática, leve e auto-hospedada ao Prefect/Airflow — incluindo um **Agente Remoto em Go (`.exe`)** para rodar automações em máquinas específicas.
+Plataforma moderna, segura e enxuta para centralizar, executar, agendar e monitorar automações Python e integrações HTTP, desenvolvida como uma alternativa prática, leve e auto-hospedada ao Prefect/Airflow — incluindo o **Ongma Agent** para rodar automações em máquinas específicas.
 
 A identidade visual da Ongma usa um símbolo geométrico inspirado na runa **Mannaz** e uma paleta de ciano, azul-petróleo e navy. Verde, âmbar e vermelho são reservados aos estados operacionais de sucesso, alerta e falha.
 
@@ -24,9 +24,9 @@ Não se limita a RPA! Como cada automação roda em sua própria virtualenv isol
 ## ✨ Funcionalidades Principais
 
 - **Gerenciamento Completo de Automações:** Cadastro, edição, ativação/pausa e exclusão (com remoção automática dos arquivos e `.venv` do disco).
-- **Execução Local ou em Máquinas Específicas (Agente Remoto em Go `.exe`):**
+- **Execução Local ou em Máquinas Específicas (Ongma Agent):**
   - Defina o campo **Máquina / Worker Alvo** (`target_worker`) como `local` para executar no próprio servidor central ou informe o nome de uma máquina específica (ex: `pc-financeiro`, `vm-rpa-01`).
-  - O binário leve `pyautomation-agent.exe` (escrito em Go puro, consumindo ~5 MB de RAM) roda na máquina alvo, busca as tarefas destinadas a ela, executa o script ou repositório Git, transmite os logs em tempo real e obedece ao botão de cancelamento da interface web.
+  - O binário leve `ongma-agent.exe` roda na máquina alvo, busca as tarefas destinadas a ela, executa o script ou repositório Git, transmite os logs em tempo real e obedece ao botão de cancelamento da interface web.
 - **Variáveis de Ambiente (`.env`):** Seção dedicada para gerenciar credenciais e configurações no formato padrão `CHAVE=VALOR` ou JSON, gravando fisicamente o arquivo `.env` na pasta de trabalho e injetando as variáveis em `os.environ` em tempo de execução. Detecta automaticamente modelos `.env.example` do repositório.
 - **Múltiplas Origens:**
   - **Scripts Python Locais:** Edição direta do código pela interface web (distribuído automaticamente para workers remotos sem precisar copiar arquivos manualmente).
@@ -152,7 +152,7 @@ gerenciador/
 ├── agent/                        # Agente Remoto em Go para execução em máquinas específicas
 │   ├── main.go                   # Código-fonte 100% biblioteca padrão do Go
 │   ├── go.mod                    # Módulo Go
-│   └── pyautomation-agent.exe    # Executável compilado para Windows
+│   └── ongma-agent.exe           # Executável compilado para Windows
 ├── worker/
 │   └── main.py                   # Processo worker Python opcional para o agendador central
 ├── tests/
@@ -185,6 +185,21 @@ DEFAULT_TIMEOUT_SECONDS=3600
 RUN_SCHEDULER_IN_WEB=true
 ```
 
+| Variável | Obrigatória | Padrão | Finalidade |
+|---|---:|---|---|
+| `SECRET_KEY` | Sim | - | Assina as sessões do painel. Deve ser aleatória, exclusiva e ter pelo menos 32 caracteres. |
+| `ADMIN_USERNAME` | Não | `admin` | Nome do primeiro administrador. |
+| `ADMIN_PASSWORD` | Sim no primeiro uso | - | Senha inicial do administrador, com pelo menos 8 caracteres. Alterá-la no `.env` não troca a senha de um usuário já criado. |
+| `API_KEY` | Para API/agentes | - | Autentica chamadas em `/api/*` e agentes remotos. Use um segredo diferente de `SECRET_KEY`. |
+| `TIMEZONE` | Não | `America/Sao_Paulo` | Fuso usado pelo agendador e pela exibição de datas. |
+| `MAX_CONCURRENT_EXECUTIONS` | Não | `5` | Limite global de execuções locais simultâneas. |
+| `DEFAULT_TIMEOUT_SECONDS` | Não | `3600` | Timeout padrão de uma automação. |
+| `MAX_LOG_SIZE_BYTES` | Não | `5242880` | Quantidade máxima de log persistida por execução. |
+| `EXECUTION_LEASE_SECONDS` | Não | `120` | Tempo sem heartbeat para uma execução ser considerada órfã. Mínimo: 30. |
+| `HEARTBEAT_INTERVAL_SECONDS` | Não | `5` | Intervalo de heartbeat. Valores aceitos: 1 a 10 segundos. |
+| `RUN_SCHEDULER_IN_WEB` | Não | `true` | Mantém o agendador no processo web. Use `false` apenas com o worker separado. |
+| `DEBUG` | Não | `false` | Ativa o modo de depuração. |
+
 Use `.env.example` como referência. Gere segredos com `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 O `.env` não deve ser versionado. A aplicação rejeita a chave de sessão padrão antiga;
 trocar `SECRET_KEY` invalida as sessões existentes. `ADMIN_PASSWORD` é usada no primeiro
@@ -205,9 +220,9 @@ Tarefas remotas `PENDING` continuam aguardando o agente. Cancelamentos de tarefa
 iniciadas mantêm a reserva até a confirmação do executor. Uma requisição HTTP já
 enviada pode produzir efeitos externos antes de ser cancelada.
 
-Atualize os agentes Go junto com o servidor: o novo agente envia heartbeat também
+Atualize o Ongma Agent junto com o servidor: o novo agente envia heartbeat também
 durante clone, instalação de dependências, requisições HTTP e espera entre retries.
-Distribua o executável recompilado e configure sua chave com `PYAUTO_KEY`.
+Distribua o executável recompilado e configure sua chave com `ONGMA_KEY`.
 O agente interrompe o trabalho se não conseguir confirmar um heartbeat, evitando
 continuar uma execução depois de perder contato com o servidor. Ao atualizar,
 reinicie os processos web, worker e agentes para que todos usem o novo protocolo.
@@ -222,40 +237,163 @@ A imagem oficial do servidor central é publicada em:
 ghcr.io/alvesmagnocavalcante/ongma
 ```
 
-Ela contém Python 3.12, `uv` e Git. O agente remoto Windows não faz parte da imagem: automações que dependem de navegador visível, certificado local, ERP ou recursos específicos da máquina devem continuar usando o `pyautomation-agent.exe`.
+Ela contém Python 3.12, `uv` e Git. O agente remoto Windows não faz parte da imagem: automações que dependem de navegador visível, certificado local, ERP ou recursos específicos da máquina devem continuar usando o `ongma-agent.exe`.
 
-### Iniciar com Docker Compose
+### Pré-requisitos para usar a imagem
 
-1. Crie o arquivo de configuração sem reutilizar segredos de outra instalação:
+- Docker Engine ou Docker Desktop;
+- plugin Docker Compose v2 (`docker compose version`);
+- porta TCP `8000` disponível no servidor.
 
-```powershell
-Copy-Item .env.example .env
-uv run python -c "import secrets; print(secrets.token_urlsafe(48))"
+Python, `uv` e Git já estão presentes na imagem do servidor. Eles só precisam ser instalados separadamente nas máquinas que executam o agente remoto.
+
+### Instalação no Linux
+
+1. Baixe somente os arquivos necessários:
+
+```bash
+mkdir -p ~/ongma
+cd ~/ongma
+curl -fsSLO https://raw.githubusercontent.com/alvesmagnocavalcante/gerenciador/main/compose.yaml
+curl -fsSL https://raw.githubusercontent.com/alvesmagnocavalcante/gerenciador/main/.env.example -o .env
+chmod 600 .env
 ```
 
-Preencha pelo menos `SECRET_KEY`, `ADMIN_PASSWORD` e `API_KEY` no `.env`. A senha do administrador deve ter no mínimo 8 caracteres.
+O comando `docker compose` deve ser executado dentro desse diretório. A mensagem `no configuration file provided: not found` significa que o terminal não está no diretório que contém `compose.yaml`.
 
-2. Inicie a aplicação:
+2. Gere dois segredos diferentes:
 
-```powershell
-docker compose pull
+```bash
+openssl rand -hex 32
+openssl rand -hex 32
+```
+
+Se `openssl` não estiver disponível, execute o comando abaixo duas vezes. Use um resultado em `SECRET_KEY` e outro em `API_KEY`:
+
+```bash
+docker run --rm --entrypoint python ghcr.io/alvesmagnocavalcante/ongma:latest -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+3. Edite o arquivo:
+
+```bash
+nano .env
+```
+
+Preencha `SECRET_KEY` com o primeiro segredo, `API_KEY` com o segundo e defina `ADMIN_PASSWORD` com pelo menos 8 caracteres. Não adicione espaços ao redor de `=`.
+
+4. Baixe a imagem e inicie o servidor:
+
+```bash
+docker compose pull ongma
 docker compose up -d
+docker compose ps
+docker compose logs --tail=100 ongma
 ```
 
-3. Acesse `http://localhost:8000`. Para acompanhar a inicialização:
+Quando o log mostrar `Application startup complete`, acesse `http://IP-DO-SERVIDOR:8000`. No próprio servidor, use `http://localhost:8000`.
+
+### Instalação no Windows
+
+No PowerShell:
 
 ```powershell
-docker compose logs -f ongma
+New-Item -ItemType Directory -Force ongma
+Set-Location ongma
+Invoke-WebRequest https://raw.githubusercontent.com/alvesmagnocavalcante/gerenciador/main/compose.yaml -OutFile compose.yaml
+Invoke-WebRequest https://raw.githubusercontent.com/alvesmagnocavalcante/gerenciador/main/.env.example -OutFile .env
+notepad .env
 ```
 
-O volume nomeado `ongma-data` preserva o SQLite, os repositórios e os ambientes das automações em `/app/data`. Não remova esse volume durante atualizações.
-
-Para atualizar:
+Gere `SECRET_KEY` e `API_KEY` executando o comando abaixo duas vezes:
 
 ```powershell
-docker compose pull
+docker run --rm --entrypoint python ghcr.io/alvesmagnocavalcante/ongma:latest -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Use resultados diferentes para as duas chaves, defina `ADMIN_PASSWORD` e execute:
+
+```powershell
+docker compose pull ongma
 docker compose up -d
+docker compose ps
+docker compose logs --tail=100 ongma
 ```
+
+### Primeiro acesso
+
+1. Abra `http://localhost:8000` ou `http://IP-DO-SERVIDOR:8000`.
+2. Entre com `ADMIN_USERNAME` e `ADMIN_PASSWORD` configurados no primeiro startup.
+3. A senha fica armazenada como hash no banco. Alterar `ADMIN_PASSWORD` posteriormente no `.env` não modifica a conta existente.
+4. A documentação da API fica em `http://IP-DO-SERVIDOR:8000/docs`.
+
+O volume nomeado `ongma-data` preserva o SQLite, os códigos e os ambientes virtuais das automações em `/app/data`. Atualizar ou recriar o container não remove esses dados. Não execute `docker compose down -v` a menos que queira apagar definitivamente a instalação.
+
+### Atualização
+
+O Compose não baixa automaticamente uma imagem nova apenas porque a tag se chama `latest`. Force o download e a recriação:
+
+```bash
+cd ~/ongma
+docker compose pull ongma
+docker compose up -d --force-recreate
+docker compose logs --tail=100 ongma
+```
+
+Para confirmar a regra de senha presente na imagem em execução:
+
+```bash
+docker compose exec ongma grep -n ADMIN_PASSWORD /app/app/core/config.py
+```
+
+Em produção, fixe uma versão no `compose.yaml`, como `ghcr.io/alvesmagnocavalcante/ongma:X.Y.Z`. Assim uma atualização só ocorre quando essa versão for alterada explicitamente.
+
+### Comandos operacionais
+
+| Ação | Comando |
+|---|---|
+| Ver estado | `docker compose ps` |
+| Acompanhar logs | `docker compose logs -f ongma` |
+| Reiniciar | `docker compose restart ongma` |
+| Parar preservando dados | `docker compose down` |
+| Iniciar novamente | `docker compose up -d` |
+| Atualizar imagem | `docker compose pull ongma` seguido de `docker compose up -d --force-recreate` |
+
+### Configurar e executar a primeira automação
+
+1. No menu **Automações**, selecione **Nova automação**.
+2. Escolha a origem:
+   - **Script Python local:** cole um script simples diretamente no formulário;
+   - **Repositório Git:** informe URL, branch ou tag e, para repositório privado, um token com acesso somente de leitura;
+   - **HTTP:** informe método, URL, headers JSON e corpo da requisição.
+3. Escolha **Manual** para executar sob demanda, **Intervalo** para recorrência simples ou **Cron** para um calendário de cinco campos. O agendador usa `TIMEZONE`.
+4. Em **Arquivo principal**, informe um caminho relativo, como `main.py`. Caminhos fora da pasta da automação são rejeitados.
+5. Em **Máquina alvo**, use `local` para executar no container ou o nome exato de um agente remoto conectado.
+6. Configure timeout, retries e intervalo entre tentativas. Use `cleanup_mode=none` para reaproveitar o clone e a `.venv`; os modos efêmeros economizam disco, mas exigem novo clone nas execuções seguintes.
+7. Adicione variáveis específicas da automação no formato `CHAVE=VALOR`, uma por linha. Não coloque esses segredos no repositório Git.
+8. Salve e use **Executar**. O painel exibe status, logs, progresso e a trilha das funções decoradas com `@step`.
+
+Para projetos Git em Python, mantenha pelo menos o entrypoint e o arquivo de dependências na raiz esperada:
+
+```text
+meu-projeto/
+├── main.py
+└── requirements.txt
+```
+
+O Ongma cria a `.venv` e instala `requirements.txt` ou `pyproject.toml` quando as dependências mudam. O pacote `runtrail` é fornecido pelo executor e não precisa ser adicionado ao `requirements.txt`.
+
+### Solução de problemas
+
+| Sintoma | Causa provável | Correção |
+|---|---|---|
+| `no configuration file provided` | Comando executado fora da pasta da instalação | Entre no diretório que contém `compose.yaml`. |
+| Container fica reiniciando | `.env` inválido ou falha de inicialização | Execute `docker compose logs --tail=100 ongma`. |
+| `ADMIN_PASSWORD ... too_short` | Senha abaixo de 8 caracteres ou imagem antiga | Corrija o `.env`, execute `docker compose pull ongma` e recrie o container. |
+| O log ainda exige 12 caracteres | Imagem anterior à `v0.1.3` em cache | Use uma tag atual e `docker compose up -d --force-recreate`. |
+| Porta `8000` em uso | Outro processo ocupa a porta publicada | Troque o lado esquerdo do mapeamento, por exemplo `8080:8000`, e acesse a porta 8080. |
+| Login não muda após editar `.env` | A conta já existe no volume | O `.env` define somente a criação inicial; preserve o volume e use a credencial existente. |
+| Git não encontrado no agente | Git ausente no computador remoto ou fora do `PATH` | Instale Git na máquina do agente e reinicie o agente. |
 
 ### Tags publicadas
 
@@ -326,13 +464,25 @@ Acesse no navegador:
 
 ---
 
-## 🖥️ Como Rodar Automações em uma Máquina Específica (Agente em Go `.exe`)
+## 🖥️ Como Rodar Automações em uma Máquina Específica (Ongma Agent)
 
 Quando você precisa que uma automação rode em um computador específico (ex: máquina do Financeiro com certificado A3, VM com ERP local ou servidor dedicado):
 
+Baixe o executável Windows diretamente do repositório:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/alvesmagnocavalcante/gerenciador/main/agent/ongma-agent.exe -OutFile ongma-agent.exe
+```
+
+SHA-256 da versão atual:
+
+```text
+88a06822b9a866bdba2989bfd1c4d928b6e34663056d960ffbe0b5506b4a8dda
+```
+
 ### Pré-requisitos da Máquina do Agente
 
-O `pyautomation-agent.exe` é autocontido, mas as ferramentas usadas pelas automações precisam estar disponíveis no `PATH` da conta que inicia o agente:
+O `ongma-agent.exe` é autocontido, mas as ferramentas usadas pelas automações precisam estar disponíveis no `PATH` da conta que inicia o agente:
 
 | Ferramenta | Quando é necessária |
 |---|---|
@@ -359,14 +509,14 @@ git --version
 Se o agente for executado como serviço ou pelo Agendador de Tarefas, valide esses comandos usando a mesma conta do processo. Depois de instalar ou alterar o `PATH`, reinicie o agente para que ele receba o novo ambiente.
 
 ### 1. Compilar o Agente (se necessário)
-O executável `agent/pyautomation-agent.exe` já pode ser gerado com um único comando (sem dependências externas):
+O executável `agent/ongma-agent.exe` pode ser gerado com um único comando:
 
 ```powershell
 # Compilar para Windows (.exe)
-go build -C agent -ldflags="-s -w" -o pyautomation-agent.exe .
+go build -C agent -ldflags="-s -w" -o ongma-agent.exe .
 
 # Ou compilar para Linux
-GOOS=linux GOARCH=amd64 go build -C agent -ldflags="-s -w" -o pyautomation-agent .
+GOOS=linux GOARCH=amd64 go build -C agent -ldflags="-s -w" -o ongma-agent .
 ```
 
 ### 2. Configurar a Automação no Painel Web
@@ -376,8 +526,8 @@ pc-financeiro
 ```
 *(Deixe como `local` para as automações que devem continuar rodando no servidor principal).*
 
-### 3. Executar o `pyautomation-agent.exe` na Máquina Específica
-Copie o arquivo `pyautomation-agent.exe` para a máquina desejada, confirme os pré-requisitos acima e **abra com dois cliques**. Na primeira abertura, o assistente no console solicita:
+### 3. Executar o `ongma-agent.exe` na Máquina Específica
+Copie o arquivo `ongma-agent.exe` para a máquina desejada, confirme os pré-requisitos acima e **abra com dois cliques**. Na primeira abertura, o assistente no console solicita:
 
 1. **URL do servidor:** endereço usado para acessar o gerenciador, com protocolo e porta. Ex.: `http://192.168.1.10:8001`. `localhost` só funciona se o servidor estiver no mesmo computador. Se iniciado por `uv run python main.py`, o servidor usa a porta **8001**; o comando Uvicorn da seção anterior usa **8000**.
 2. **Chave de API:** valor de `API_KEY` no `.env` do servidor. A digitação fica oculta.
@@ -386,30 +536,48 @@ Copie o arquivo `pyautomation-agent.exe` para a máquina desejada, confirme os p
 
 O assistente verifica conexão e autenticação sem buscar tarefas. A configuração só é salva após essa verificação e o agente inicia em seguida. Em caso de falha, permite corrigir os campos ou sair.
 
-A configuração fica em `%APPDATA%\PyAutomation\agent.json`. A chave é protegida pela **DPAPI do Windows**, vinculada ao usuário que a configurou. Não copie esse arquivo para outros usuários/computadores; configure o executável em cada destino.
+A configuração fica em `%APPDATA%\Ongma\agent.json`. A chave é protegida pela **DPAPI do Windows**, vinculada ao usuário que a configurou. Não copie esse arquivo para outros usuários/computadores; configure o executável em cada destino. Instalações existentes continuam aceitando `%APPDATA%\PyAutomation\agent.json`.
 
-Nas próximas aberturas, pressione **Enter** para iniciar, **C** para configurar novamente ou **S** para sair. Também é possível abrir diretamente o assistente com `.\pyautomation-agent.exe -configure`.
+Nas próximas aberturas, pressione **Enter** para iniciar, **C** para configurar novamente ou **S** para sair. Também é possível abrir diretamente o assistente com `.\ongma-agent.exe -configure`.
 
 Para serviços e execução automatizada, os parâmetros existentes continuam disponíveis, sem assistente. Em Linux, utilize parâmetros ou variáveis de ambiente:
 
 ```powershell
-.\pyautomation-agent.exe -server http://IP-DO-SERVIDOR:8000 -key sua-chave-secreta-para-workers-e-api -worker pc-financeiro
+.\ongma-agent.exe -server http://IP-DO-SERVIDOR:8000 -key sua-chave-secreta-para-workers-e-api -worker pc-financeiro
 ```
 
-Você também pode configurar via variáveis de ambiente (`PYAUTO_SERVER`, `PYAUTO_KEY`, `PYAUTO_WORKER`, `PYAUTO_WORKDIR`):
+Você também pode configurar via variáveis de ambiente (`ONGMA_SERVER`, `ONGMA_KEY`, `ONGMA_WORKER`, `ONGMA_WORKDIR`). Os nomes antigos `PYAUTO_*` continuam aceitos para compatibilidade.
 
-Precedência: **parâmetros > variáveis de ambiente > configuração salva > padrões**. Parâmetros e variáveis não alteram o arquivo salvo, exceto quando o assistente é solicitado com `-configure`. Sem parâmetros, definir `PYAUTO_SERVER` evita o menu interativo.
+Exemplo no PowerShell:
+
+```powershell
+$env:ONGMA_SERVER = "http://IP-DO-SERVIDOR:8000"
+$env:ONGMA_KEY = "valor-de-API_KEY"
+$env:ONGMA_WORKER = "pc-financeiro"
+.\ongma-agent.exe
+```
+
+Exemplo no Linux:
+
+```bash
+export ONGMA_SERVER="http://IP-DO-SERVIDOR:8000"
+export ONGMA_KEY="valor-de-API_KEY"
+export ONGMA_WORKER="pc-financeiro"
+./ongma-agent
+```
+
+Precedência: **parâmetros > variáveis `ONGMA_*` > variáveis legadas `PYAUTO_*` > configuração salva > padrões**. Parâmetros e variáveis não alteram o arquivo salvo, exceto quando o assistente é solicitado com `-configure`. Sem parâmetros, definir `ONGMA_SERVER` evita o menu interativo.
 
 | Parâmetro | Variável de Ambiente | Padrão | Descrição |
 |---|---|---|---|
-| `-server` | `PYAUTO_SERVER` | `http://localhost:8000` | URL base do servidor central da Ongma |
-| `-key` | `PYAUTO_KEY` | *(vazio)* | Valor configurado em `API_KEY` no `.env` do servidor |
-| `-worker` | `PYAUTO_WORKER` | *Hostname do SO* | Nome da máquina (deve coincidir com **Máquina / Worker Alvo**) |
-| `-workdir` | `PYAUTO_WORKDIR` | `./worker_data` | Pasta local onde o agente criará as `.venv` e clonará repositórios |
+| `-server` | `ONGMA_SERVER` | `http://localhost:8000` | URL base do servidor central da Ongma |
+| `-key` | `ONGMA_KEY` | *(vazio)* | Valor configurado em `API_KEY` no `.env` do servidor |
+| `-worker` | `ONGMA_WORKER` | *Hostname do SO* | Nome da máquina (deve coincidir com **Máquina / Worker Alvo**) |
+| `-workdir` | `ONGMA_WORKDIR` | `./worker_data` | Pasta local onde o agente criará as `.venv` e clonará repositórios |
 | `-interval` | - | `3` | Intervalo em segundos entre cada consulta ao servidor |
 | `-configure` | - | `false` | Abre o assistente de configuração no Windows |
 
-**O que o Agente Go faz automaticamente:**
+**O que o Ongma Agent faz automaticamente:**
 1. Consulta `POST /api/worker/poll?worker_name=pc-financeiro`.
 2. Baixa scripts Python locais diretamente da API ou clona/atualiza repositórios Git.
 3. Cria a `.venv` isolada usando `uv` (ou `python -m venv` como fallback) e instala `pyproject.toml` / `requirements.txt` com cache SHA-256 (`.deps_hash`).
@@ -453,8 +621,8 @@ go vet -C agent ./...
 
 ## 🛡️ Camadas de Segurança Implementadas
 
-1. **Sem Execução Arbitrária de Shell (`shell=True`):** Todos os processos Python e comandos Git (tanto no servidor Python quanto no agente Go) rodam com listas de argumentos validadas.
-2. **Proteção Estrita contra Path Traversal (`resolve_safe_path`):** O caminho do script (`entrypoint`) é validado tanto no servidor quanto no agente Go para nunca escapar do diretório da automação.
+1. **Sem Execução Arbitrária de Shell (`shell=True`):** Todos os processos Python e comandos Git (tanto no servidor quanto no Ongma Agent) rodam com listas de argumentos validadas.
+2. **Proteção Estrita contra Path Traversal (`resolve_safe_path`):** O caminho do script (`entrypoint`) é validado tanto no servidor quanto no Ongma Agent para nunca escapar do diretório da automação.
 3. **Prevenção de XSS:** Toda saída de logs de terminal e mensagens de retorno em fragmentos HTMX passa por `html.escape()` antes de ser enviada ao navegador.
 4. **Autenticação Web & API:** Senhas com hash `PBKDF2-HMAC-SHA256` (100.000 iterações + salt único), cookies `HttpOnly` assinados via HMAC com timestamp de expiração, e proteção das rotas `/api/*`, `/api/worker/*` e `/executions/{id}/logs`.
 5. **Sanitização Automática de Logs:** Tokens do GitHub (`ghp_...`, `github_pat_...`), tokens `Bearer`, senhas em URLs (`https://user:pass@host`) e variáveis sensíveis (`API_KEY`, `PASSWORD`, `SECRET`, `TOKEN`) são mascarados com `[REDACTED]` antes de serem persistidos no banco.

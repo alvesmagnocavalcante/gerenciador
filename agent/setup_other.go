@@ -16,7 +16,7 @@ func readConsoleKey(*os.File, *bufio.Reader) (string, error) {
 }
 
 func protectAPIKey([]byte) ([]byte, error) {
-	return nil, errors.New("persistência de credenciais disponível apenas no Windows; use PYAUTO_KEY")
+	return nil, errors.New("persistência de credenciais disponível apenas no Windows; use ONGMA_KEY")
 }
 
 func unprotectAPIKey([]byte) ([]byte, error) {

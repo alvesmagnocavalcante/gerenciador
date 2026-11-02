@@ -22,7 +22,10 @@ func validSettings() agentSettings {
 
 func TestSettingsPrecedenceAndHelpDoesNotExposeKey(t *testing.T) {
 	saved := validSettings()
-	env := map[string]string{"PYAUTO_SERVER": "http://env:8001", "PYAUTO_KEY": "env-secret", "PYAUTO_WORKER": "env-worker"}
+	env := map[string]string{
+		"ONGMA_SERVER": "http://env:8001", "ONGMA_KEY": "env-secret", "ONGMA_WORKER": "env-worker",
+		"PYAUTO_SERVER": "http://legacy:8001", "PYAUTO_KEY": "legacy-secret", "PYAUTO_WORKER": "legacy-worker",
+	}
 	getenv := func(key string) string { return env[key] }
 	settings, configure, err := parseAgentSettings([]string{"-server", "http://flag:8001", "-interval", "5"}, saved, "hostname", getenv, io.Discard)
 	if err != nil || configure || settings.ServerURL != "http://flag:8001" || settings.APIKey != "env-secret" || settings.WorkerID != "env-worker" || settings.WorkDir != saved.WorkDir || settings.Interval != 5 {
@@ -30,12 +33,45 @@ func TestSettingsPrecedenceAndHelpDoesNotExposeKey(t *testing.T) {
 	}
 	var help bytes.Buffer
 	_, _, err = parseAgentSettings([]string{"-help"}, saved, "hostname", getenv, &help)
-	if !errors.Is(err, flag.ErrHelp) || strings.Contains(help.String(), "env-secret") || strings.Contains(help.String(), saved.APIKey) {
+	if !errors.Is(err, flag.ErrHelp) || strings.Contains(help.String(), "env-secret") || strings.Contains(help.String(), saved.APIKey) ||
+		!strings.Contains(help.String(), "Usage of ongma-agent") || strings.Contains(help.String(), "pyautomation-agent") {
 		t.Fatal("help exposed a secret or did not return help")
 	}
 	settings, _, err = parseAgentSettings(nil, agentSettings{}, "hostname", func(string) string { return "" }, io.Discard)
 	if err != nil || settings.ServerURL != "http://localhost:8000" || settings.WorkerID != "hostname" || settings.Interval != 3 {
 		t.Fatal("CLI defaults changed", err)
+	}
+	legacyEnv := map[string]string{"PYAUTO_SERVER": "http://legacy:8001", "PYAUTO_KEY": "legacy-secret"}
+	settings, _, err = parseAgentSettings(nil, agentSettings{}, "hostname", func(key string) string { return legacyEnv[key] }, io.Discard)
+	if err != nil || settings.ServerURL != "http://legacy:8001" || settings.APIKey != "legacy-secret" {
+		t.Fatal("legacy environment variables stopped working", err)
+	}
+}
+
+func TestAgentConfigPathPrefersCurrentAndAcceptsLegacy(t *testing.T) {
+	root := t.TempDir()
+	current := filepath.Join(root, agentConfigDirectory, "agent.json")
+	legacy := filepath.Join(root, legacyAgentConfigDirectory, "agent.json")
+	if got := agentConfigPath(root); got != current {
+		t.Fatalf("new installation path = %s", got)
+	}
+	if err := os.MkdirAll(filepath.Dir(legacy), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := agentConfigPath(root); got != legacy {
+		t.Fatalf("legacy installation path = %s", got)
+	}
+	if err := os.MkdirAll(filepath.Dir(current), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(current, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := agentConfigPath(root); got != current {
+		t.Fatalf("current path was not preferred: %s", got)
 	}
 }
 

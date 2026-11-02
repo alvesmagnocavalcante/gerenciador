@@ -1,19 +1,19 @@
 # AGENTS.md — Guia de Arquitetura e Desenvolvimento para Agentes
 
-Este documento orienta agentes autônomos e desenvolvedores futuros na manutenção e evolução da plataforma **PyAutomation Manager**.
+Este documento orienta agentes autônomos e desenvolvedores futuros na manutenção e evolução da plataforma **Ongma**.
 
 ---
 
 ## 🧭 Visão Geral da Arquitetura
 
-O sistema é construído como um monólito modular enxuto em Python (FastAPI + APScheduler + SQLite WAL + HTMX), acompanhado de um **Agente Remoto opcional em Go** (`agent/main.go` -> `pyautomation-agent.exe`) para execução distribuída em máquinas específicas.
+O sistema é construído como um monólito modular enxuto em Python (FastAPI + APScheduler + SQLite WAL + HTMX), acompanhado de um **Agente Remoto opcional em Go** (`agent/main.go` -> `ongma-agent.exe`) para execução distribuída em máquinas específicas.
 
 ### Fluxo de Execução de uma Automação
 
 1. **Gatilho & Roteamento (`target_worker`):**
    - A automação pode ser acionada manualmente (via interface web HTMX ou API JSON autenticada) ou agendada pelo **APScheduler** (`run_automation_job`).
    - Se `Automation.target_worker` for `"local"` (padrão), a execução roda localmente no servidor via `_worker_thread`.
-   - Se `Automation.target_worker` contiver o nome de uma máquina específica (ex: `"pc-financeiro"`), `run_automation_job` cria o registro `Execution` com status `PENDING` aguardando que o `pyautomation-agent.exe` daquela máquina busque a tarefa via `POST /api/worker/poll?worker_name=...`.
+   - Se `Automation.target_worker` contiver o nome de uma máquina específica (ex: `"pc-financeiro"`), `run_automation_job` cria o registro `Execution` com status `PENDING` aguardando que o `ongma-agent.exe` daquela máquina busque a tarefa via `POST /api/worker/poll?worker_name=...`.
 2. **Controle de Concorrência & Recuperação de Órfãs:**
    - O índice parcial único `uq_execution_active_automation` impede duas execuções `PENDING`/`RUNNING` da mesma automação, inclusive entre processos. O poll remoto assume a tarefa com UPDATE condicional; `_lock` e `_running_automations` são otimizações locais.
    - O semáforo `_semaphore` limita threads por processo; a contagem e o claim com `BEGIN IMMEDIATE` garantem `MAX_CONCURRENT_EXECUTIONS` entre processos locais que usam o mesmo SQLite. Retries usam um laço e mantêm a reserva ativa.

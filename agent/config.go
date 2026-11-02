@@ -19,6 +19,11 @@ import (
 
 var errSetupCancelled = errors.New("configuração cancelada")
 
+const (
+	agentConfigDirectory       = "Ongma"
+	legacyAgentConfigDirectory = "PyAutomation"
+)
+
 type agentSettings struct {
 	ServerURL    string `json:"server"`
 	WorkerID     string `json:"worker"`
@@ -76,15 +81,21 @@ func parseAgentSettings(args []string, saved agentSettings, hostname string, get
 	if saved.ServerURL != "" {
 		settings = saved
 	}
-	for key, target := range map[string]*string{
-		"PYAUTO_SERVER": &settings.ServerURL, "PYAUTO_KEY": &settings.APIKey,
-		"PYAUTO_WORKER": &settings.WorkerID, "PYAUTO_WORKDIR": &settings.WorkDir,
+	for _, variable := range []struct {
+		primary string
+		legacy  string
+		target  *string
+	}{
+		{"ONGMA_SERVER", "PYAUTO_SERVER", &settings.ServerURL},
+		{"ONGMA_KEY", "PYAUTO_KEY", &settings.APIKey},
+		{"ONGMA_WORKER", "PYAUTO_WORKER", &settings.WorkerID},
+		{"ONGMA_WORKDIR", "PYAUTO_WORKDIR", &settings.WorkDir},
 	} {
-		if value := strings.TrimSpace(getenv(key)); value != "" {
-			*target = value
+		if value := firstEnvironmentValue(getenv, variable.primary, variable.legacy); value != "" {
+			*variable.target = value
 		}
 	}
-	flags := flag.NewFlagSet("pyautomation-agent", flag.ContinueOnError)
+	flags := flag.NewFlagSet("ongma-agent", flag.ContinueOnError)
 	flags.SetOutput(output)
 	// Valores são aplicados depois do parse para a ajuda nunca exibir secrets.
 	server := flags.String("server", "", "URL do servidor Ongma")
@@ -115,6 +126,27 @@ func parseAgentSettings(args []string, saved agentSettings, hostname string, get
 		}
 	})
 	return settings, *configure, nil
+}
+
+func firstEnvironmentValue(getenv func(string) string, names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func agentConfigPath(configDir string) string {
+	current := filepath.Join(configDir, agentConfigDirectory, "agent.json")
+	if _, err := os.Stat(current); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return current
+	}
+	legacy := filepath.Join(configDir, legacyAgentConfigDirectory, "agent.json")
+	if _, err := os.Stat(legacy); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return legacy
+	}
+	return current
 }
 
 func validateAgentSettings(settings *agentSettings) error {
@@ -250,7 +282,7 @@ func startupAgent(args []string, input *os.File, output io.Writer) (agentSetting
 	if err != nil {
 		return agentSettings{}, err
 	}
-	path := filepath.Join(configDir, "PyAutomation", "agent.json")
+	path := agentConfigPath(configDir)
 	saved, exists, err := loadAgentSettings(path)
 	if err != nil {
 		return saved, fmt.Errorf("%s: %w", path, err)
@@ -285,7 +317,7 @@ func startupAgent(args []string, input *os.File, output io.Writer) (agentSetting
 			settings.APIKey = string(key)
 		}
 	}
-	if len(args) == 0 && interactive && os.Getenv("PYAUTO_SERVER") == "" {
+	if len(args) == 0 && interactive && firstEnvironmentValue(os.Getenv, "ONGMA_SERVER", "PYAUTO_SERVER") == "" {
 		if exists && !configure {
 			fmt.Fprintf(output, "\nServidor: %s\nMáquina: %s\n", settings.ServerURL, settings.WorkerID)
 			for {
@@ -309,7 +341,7 @@ func startupAgent(args []string, input *os.File, output io.Writer) (agentSetting
 	}
 	if configure {
 		if !interactive {
-			return settings, errors.New("o assistente requer um console Windows; para execução automatizada use parâmetros ou PYAUTO_SERVER/PYAUTO_KEY")
+			return settings, errors.New("o assistente requer um console Windows; para execução automatizada use parâmetros ou ONGMA_SERVER/ONGMA_KEY")
 		}
 		settings, err = configureAgent(reader, output, settings,
 			func() (string, error) { return readConsoleKey(input, reader) },
