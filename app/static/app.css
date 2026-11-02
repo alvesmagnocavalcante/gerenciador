@@ -39,7 +39,9 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.34;ba
     .sidebar-collapsed .brand-mark{gap:0}
     .sidebar-collapsed .nav-item{justify-content:center;padding-inline:0}
     .sidebar-collapsed .nav-item:hover{transform:none}
-    .sidebar-collapsed .sidebar-status{justify-content:center;margin-inline:0;padding-inline:0}
+    .sidebar-collapsed .sidebar-status{width:30px;height:30px;justify-content:center;margin:0 auto 12px;padding:0;border-color:transparent;background:transparent}
+    .sidebar-collapsed .sidebar-status .status-orb{width:18px;height:18px}
+    .sidebar-collapsed .sidebar-status .status-orb i{width:6px;height:6px}
     .sidebar-collapsed .sidebar-user{justify-content:center;padding-inline:0;flex-wrap:wrap}
     .sidebar-collapsed .sidebar-user .icon-button{width:34px;height:34px}
     .sidebar-collapsed .sidebar-collapse{position:absolute;left:68px;top:26px;border-color:rgba(148,163,184,.2);background:#151b2d;box-shadow:0 5px 16px rgba(0,0,0,.28)}
@@ -50,3 +52,36 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.34;ba
 
 .brand-symbol{background:#071120;border:1px solid rgba(0,229,255,.18);box-shadow:0 12px 28px -10px rgba(0,213,239,.42)}
 .brand-symbol img{width:27px;height:27px;display:block}
+
+/* Identidade Ongma: ciano, azul-petróleo e navy */
+:root{--bg:#edf5f7;--surface:rgba(255,255,255,.9);--solid:#fff;--border:rgba(71,105,115,.2);--text:#102630;--muted:#607985;--sidebar:#06111c;--side-muted:#8299a5;--accent:#06b6d4;--shadow:0 20px 48px -28px rgba(8,64,78,.3),0 2px 8px rgba(15,74,88,.05)}
+.dark{--bg:#050c13;--surface:rgba(10,24,34,.82);--solid:#0b1822;--border:rgba(103,153,166,.16);--text:#ecfeff;--muted:#8eabb5;--sidebar:#040b12;--side-muted:#78909c;--shadow:0 30px 70px -35px rgba(0,0,0,.82)}
+body{background:radial-gradient(circle at 82% -8%,rgba(6,182,212,.18),transparent 31rem),radial-gradient(circle at 18% 108%,rgba(20,184,166,.12),transparent 30rem),linear-gradient(145deg,#f8fcfd 0%,var(--bg) 50%,#eaf7f7 100%)}
+.dark body{background:radial-gradient(circle at 78% -10%,rgba(6,182,212,.13),transparent 30rem),radial-gradient(circle at 25% 105%,rgba(20,184,166,.07),transparent 28rem),var(--bg)}
+::selection{background:rgba(6,182,212,.28)}
+.app-sidebar{background:linear-gradient(180deg,rgba(6,18,30,.99),rgba(3,10,17,.995));border-right-color:rgba(34,211,238,.09)}
+.nav-item.is-active{color:#ecfeff;background:linear-gradient(100deg,rgba(6,182,212,.2),rgba(20,184,166,.055));border-color:rgba(34,211,238,.2);box-shadow:inset 3px 0 #22d3ee}
+.user-avatar{color:#a5f3fc;background:rgba(6,182,212,.14);border-color:rgba(34,211,238,.2)}
+.quick-action{background:linear-gradient(135deg,#0891b2,#0d9488);box-shadow:0 10px 24px -12px rgba(6,182,212,.75)}
+.icon-button:hover{border-color:rgba(6,182,212,.34)}
+.page-kicker{color:#0891b2}.dark .page-kicker{color:#22d3ee}
+.metric-card:hover{border-color:rgba(6,182,212,.26);box-shadow:0 26px 55px -30px rgba(6,182,212,.28),0 8px 18px -14px rgba(15,74,88,.2)}
+.metric-card:after{background:var(--metric-glow,rgba(6,182,212,.11))}
+.metric-icon{color:var(--metric-color,#06b6d4);background:color-mix(in srgb,var(--metric-color,#06b6d4) 11%,transparent)}
+.list-row:hover{background:linear-gradient(90deg,rgba(6,182,212,.055),rgba(20,184,166,.025))}
+.sidebar-collapsed .sidebar-collapse{background:#0b202c}
+.sidebar-status{margin:18px 5px 0}
+.sidebar-spacer{position:relative;display:grid;min-height:120px;place-items:center}
+.sidebar-rune{position:relative;width:108px;height:108px;display:grid;place-items:center;border-radius:50%}
+.sidebar-rune:before{content:"";position:absolute;inset:8px;border:1px solid rgba(34,211,238,.08);border-radius:50%;box-shadow:0 0 34px rgba(6,182,212,.06);animation:ongma-rune-halo 4.8s ease-in-out infinite}
+.sidebar-rune:after{content:"";position:absolute;inset:30%;border-radius:50%;background:rgba(34,211,238,.08);filter:blur(16px);animation:ongma-rune-glow 3.6s ease-in-out infinite}
+.sidebar-rune img{position:relative;z-index:1;width:74px;height:74px;opacity:.1;filter:saturate(.75);animation:ongma-rune-breathe 4.8s ease-in-out infinite}
+@keyframes ongma-rune-breathe{0%,100%{opacity:.07;transform:scale(.96)}50%{opacity:.16;transform:scale(1.035)}}
+@keyframes ongma-rune-halo{0%,100%{opacity:.35;transform:scale(.9)}50%{opacity:1;transform:scale(1.04)}}
+@keyframes ongma-rune-glow{0%,100%{opacity:.25;transform:scale(.7)}50%{opacity:.8;transform:scale(1.18)}}
+@media(min-width:1024px){
+    .sidebar-collapsed .sidebar-rune{width:38px;height:38px}
+    .sidebar-collapsed .sidebar-rune:before{inset:3px}
+    .sidebar-collapsed .sidebar-rune:after{inset:28%;filter:blur(8px)}
+    .sidebar-collapsed .sidebar-rune img{width:27px;height:27px;opacity:.13}
+}

@@ -1,0 +1,20 @@
+services:
+  ongma:
+    image: ghcr.io/alvesmagnocavalcante/ongma:latest
+    container_name: ongma
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /app/data
+      AUTOMATIONS_DIR: /app/data/automations
+      DB_PATH: /app/data/app.db
+      PORT: "8000"
+      RUN_SCHEDULER_IN_WEB: "true"
+    volumes:
+      - ongma-data:/app/data
+
+volumes:
+  ongma-data:

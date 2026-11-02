@@ -20,7 +20,7 @@
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {% for execution in dashboard_executions %}
         {% set is_active = execution.status in ['PENDING', 'RUNNING'] %}
-        <article class="relative overflow-hidden rounded-2xl border {{ 'border-emerald-800/60' if execution.status == 'SUCCESS' else 'border-rose-900/70' if execution.status in ['FAILED', 'TIMEOUT'] else 'border-zinc-700/80' }} bg-gradient-to-br from-zinc-800 to-zinc-900 p-5 text-zinc-100 shadow-xl shadow-zinc-950/10 transition hover:-translate-y-0.5 hover:border-indigo-500/40">
+        <article class="relative overflow-hidden rounded-2xl border {{ 'border-emerald-800/60' if execution.status == 'SUCCESS' else 'border-rose-900/70' if execution.status in ['FAILED', 'TIMEOUT'] else 'border-zinc-700/80' }} bg-gradient-to-br from-zinc-800 to-zinc-900 p-5 text-zinc-100 shadow-xl shadow-zinc-950/10 transition hover:-translate-y-0.5 hover:border-cyan-500/40">
             <div class="mb-4 flex items-start justify-between gap-3">
                 <div class="min-w-0">
                     <div class="mb-1 flex items-center gap-2 text-xs text-zinc-400">

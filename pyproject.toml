@@ -1,7 +1,7 @@
 [project]
 name = "gerenciamento"
 version = "0.1.0"
-description = "Add your description here"
+description = "Gerenciador leve e auto-hospedado de automações Python"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

@@ -4,9 +4,9 @@
 
 {% block content %}
 <div class="flex min-h-screen items-center justify-center px-5 py-10">
-    <section class="grid w-full max-w-4xl overflow-hidden rounded-[2rem] border border-white/60 bg-white/85 shadow-2xl shadow-indigo-950/10 backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-900/90 lg:grid-cols-[1.05fr_.95fr]">
+    <section class="grid w-full max-w-4xl overflow-hidden rounded-[2rem] border border-white/60 bg-white/85 shadow-2xl shadow-cyan-950/10 backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-900/90 lg:grid-cols-[1.05fr_.95fr]">
         <div class="relative hidden min-h-[580px] overflow-hidden bg-zinc-950 p-10 text-white lg:flex lg:flex-col lg:justify-between">
-            <div class="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-indigo-600/40 blur-3xl"></div>
+            <div class="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-cyan-600/35 blur-3xl"></div>
             <div class="absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-cyan-500/20 blur-3xl"></div>
             <div class="relative flex items-center gap-3">
                 <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-400/10 shadow-lg shadow-cyan-500/10">
@@ -43,14 +43,14 @@
                 <div>
                     <label for="username" class="mb-2 block text-xs font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-300">Usuário</label>
                     <input id="username" name="username" type="text" required autocomplete="username" value="{{ username or '' }}"
-                        class="block w-full rounded-xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 text-sm text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:focus:border-indigo-400 dark:focus:bg-zinc-800">
+                        class="block w-full rounded-xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 text-sm text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-cyan-500 focus:bg-white focus:ring-4 focus:ring-cyan-500/10 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:focus:border-cyan-400 dark:focus:bg-zinc-800">
                 </div>
                 <div>
                     <label for="password" class="mb-2 block text-xs font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-300">Senha</label>
                     <input id="password" name="password" type="password" required autocomplete="current-password"
-                        class="block w-full rounded-xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 text-sm text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:focus:border-indigo-400 dark:focus:bg-zinc-800">
+                        class="block w-full rounded-xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 text-sm text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-cyan-500 focus:bg-white focus:ring-4 focus:ring-cyan-500/10 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:focus:border-cyan-400 dark:focus:bg-zinc-800">
                 </div>
-                <button type="submit" class="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/20 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-500/25 focus:outline-none focus:ring-4 focus:ring-indigo-500/20">
+                <button type="submit" class="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-500 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-cyan-500/20 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-cyan-500/25 focus:outline-none focus:ring-4 focus:ring-cyan-500/20">
                     Entrar no painel
                     <svg class="h-4 w-4 fill-none stroke-current" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>

@@ -2,9 +2,9 @@
   <title id="title">Ongma</title>
   <defs>
     <linearGradient id="ongma-gradient" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#00E7FF"/>
-      <stop offset="1" stop-color="#13CBE8"/>
+      <stop stop-color="#22F0FF"/>
+      <stop offset="1" stop-color="#00AFCB"/>
     </linearGradient>
   </defs>
-  <path d="M9 54V10l23 20 23-20v44" fill="none" stroke="url(#ongma-gradient)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M10 56V8M54 56V8M10 8l44 30M54 8 10 38" fill="none" stroke="url(#ongma-gradient)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

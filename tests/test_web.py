@@ -47,6 +47,8 @@ def test_dashboard_authenticated(auth_client):
     assert "Total Automações" in resp.text
     assert 'id="sidebar-collapse"' in resp.text
     assert "localStorage.sidebarCollapsed" in resp.text
+    assert 'class="sidebar-rune"' in resp.text
+    assert resp.text.count("Nova automação") == 1
 
 
 def test_dashboard_shows_live_execution_progress(auth_client, db_session):

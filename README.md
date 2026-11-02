@@ -2,6 +2,8 @@
 
 Plataforma moderna, segura e enxuta para centralizar, executar, agendar e monitorar automações Python e integrações HTTP, desenvolvida como uma alternativa prática, leve e auto-hospedada ao Prefect/Airflow — incluindo um **Agente Remoto em Go (`.exe`)** para rodar automações em máquinas específicas.
 
+A identidade visual da Ongma usa um símbolo geométrico inspirado na runa **Mannaz** e uma paleta de ciano, azul-petróleo e navy. Verde, âmbar e vermelho são reservados aos estados operacionais de sucesso, alerta e falha.
+
 ---
 
 ## 🎯 Objetivo & Filosofia
@@ -209,6 +211,87 @@ Distribua o executável recompilado e configure sua chave com `PYAUTO_KEY`.
 O agente interrompe o trabalho se não conseguir confirmar um heartbeat, evitando
 continuar uma execução depois de perder contato com o servidor. Ao atualizar,
 reinicie os processos web, worker e agentes para que todos usem o novo protocolo.
+
+---
+
+## Executar com Docker e GHCR
+
+A imagem oficial do servidor central é publicada em:
+
+```text
+ghcr.io/alvesmagnocavalcante/ongma
+```
+
+Ela contém Python 3.12, `uv` e Git. O agente remoto Windows não faz parte da imagem: automações que dependem de navegador visível, certificado local, ERP ou recursos específicos da máquina devem continuar usando o `pyautomation-agent.exe`.
+
+### Iniciar com Docker Compose
+
+1. Crie o arquivo de configuração sem reutilizar segredos de outra instalação:
+
+```powershell
+Copy-Item .env.example .env
+uv run python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Preencha pelo menos `SECRET_KEY`, `ADMIN_PASSWORD` e `API_KEY` no `.env`. A senha do administrador deve ter no mínimo 12 caracteres.
+
+2. Inicie a aplicação:
+
+```powershell
+docker compose pull
+docker compose up -d
+```
+
+3. Acesse `http://localhost:8000`. Para acompanhar a inicialização:
+
+```powershell
+docker compose logs -f ongma
+```
+
+O volume nomeado `ongma-data` preserva o SQLite, os repositórios e os ambientes das automações em `/app/data`. Não remova esse volume durante atualizações.
+
+Para atualizar:
+
+```powershell
+docker compose pull
+docker compose up -d
+```
+
+### Tags publicadas
+
+| Tag | Origem | Uso |
+|---|---|---|
+| `edge` | Último commit da branch principal | Homologação |
+| `latest` | Última tag Git `vX.Y.Z` | Instalação estável |
+| `X.Y.Z` e `X.Y` | Release versionada | Produção reproduzível |
+| `sha-...` | Commit específico | Auditoria e rollback |
+
+Para produção, prefira uma versão explícita no `compose.yaml`, por exemplo `ghcr.io/alvesmagnocavalcante/ongma:1.0.0`, em vez de `latest`.
+
+### Publicação no GHCR
+
+O workflow `.github/workflows/publish-ghcr.yml` executa os testes e publica imagens `linux/amd64` e `linux/arm64` usando o `GITHUB_TOKEN`; nenhum token adicional precisa ser salvo no repositório.
+
+- Pull request: executa os testes, sem publicar.
+- Push na branch principal: publica `edge` e a tag do commit.
+- Tag `vX.Y.Z`: publica `latest`, `X.Y.Z`, `X.Y` e a tag do commit.
+- `workflow_dispatch`: permite uma publicação manual.
+
+Exemplo de primeira versão estável:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Depois da primeira publicação, confirme em **GitHub → Packages → ongma → Package settings** que a visibilidade está como **Public**. Imagens públicas do GHCR podem ser baixadas anonimamente.
+
+### Limitações operacionais
+
+- Execute apenas uma instância do container enquanto o banco for SQLite.
+- Monte `/app/data` em volume persistente.
+- Não inclua `.env`, banco ou tokens na imagem; o `.dockerignore` bloqueia esses arquivos.
+- Containers Linux não substituem o agente Windows para RPA de desktop.
 
 ---
 
