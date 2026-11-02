@@ -394,6 +394,56 @@ O Ongma cria a `.venv` e instala `requirements.txt` ou `pyproject.toml` quando a
 | Porta `8000` em uso | Outro processo ocupa a porta publicada | Troque o lado esquerdo do mapeamento, por exemplo `8080:8000`, e acesse a porta 8080. |
 | Login não muda após editar `.env` | A conta já existe no volume | O `.env` define somente a criação inicial; preserve o volume e use a credencial existente. |
 | Git não encontrado no agente | Git ausente no computador remoto ou fora do `PATH` | Instale Git na máquina do agente e reinicie o agente. |
+| Agente em outra máquina recebe erro de conexão e `TcpTestSucceeded` retorna `False` | Firewall do Hyper-V bloqueando entrada no WSL em modo `mirrored` | Crie a regra `Ongma-8000` descrita abaixo. |
+
+#### Agente remoto não acessa o WSL em modo `mirrored`
+
+> **Aplicação exclusiva:** siga esta seção somente quando o servidor Ongma estiver executando dentro do **WSL 2 em modo `mirrored`**. Não execute estes comandos em Linux nativo, Windows sem WSL, Docker Desktop com a porta já acessível, máquina virtual comum ou servidor externo.
+
+Este caso ocorre quando o Ongma funciona em `http://localhost:8000` no computador servidor, mas outra máquina não consegue acessar `http://IP-DO-SERVIDOR:8000`. Confirme primeiro, na máquina do agente:
+
+```powershell
+Test-NetConnection IP-DO-SERVIDOR -Port 8000
+```
+
+Se `TcpTestSucceeded` for `False` e o WSL estiver usando `networkingMode=mirrored`, remova um encaminhamento NAT antigo, caso exista, e libere somente a porta do Ongma no firewall do Hyper-V. Execute no **PowerShell como administrador** do computador servidor:
+
+```powershell
+netsh interface portproxy delete v4tov4 `
+  listenport=8000 `
+  listenaddress=0.0.0.0
+
+Get-NetFirewallHyperVRule `
+  -Name "Ongma-8000" `
+  -ErrorAction SilentlyContinue |
+  Remove-NetFirewallHyperVRule
+
+New-NetFirewallHyperVRule `
+  -Name "Ongma-8000" `
+  -DisplayName "Ongma Server 8000" `
+  -Direction Inbound `
+  -VMCreatorId "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}" `
+  -Protocol TCP `
+  -LocalPorts 8000
+```
+
+O primeiro comando pode informar que a regra `portproxy` não existe; nesse caso, prossiga normalmente. No WSL, confirme que o container publica a porta em todas as interfaces:
+
+```bash
+docker compose ps
+ss -lnt | grep ':8000'
+curl -I http://localhost:8000/login
+```
+
+O Compose deve mostrar `0.0.0.0:8000->8000/tcp`. Depois, repita na máquina do agente:
+
+```powershell
+Test-NetConnection IP-DO-SERVIDOR -Port 8000
+curl.exe -I http://IP-DO-SERVIDOR:8000/login
+.\ongma-agent.exe -configure
+```
+
+No agente, use o IPv4 da placa Ethernet ou Wi-Fi do computador servidor; nunca use `localhost` nem o IP de uma rede Docker. A regra acima é específica para a porta TCP 8000. Consulte a documentação da Microsoft sobre [rede no WSL](https://learn.microsoft.com/windows/wsl/networking) e [`New-NetFirewallHyperVRule`](https://learn.microsoft.com/powershell/module/netsecurity/new-netfirewallhypervrule).
 
 ### Tags publicadas
 
