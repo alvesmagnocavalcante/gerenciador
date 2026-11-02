@@ -5,7 +5,8 @@ Ongma centraliza, agenda, executa e acompanha automações Python, repositórios
 - Painel web simples;
 - execução manual ou agendada;
 - logs, progresso e etapas em tempo real;
-- execução no servidor ou em outra máquina com o **Ongma Agent**;
+- execução local no servidor, sem necessidade de agente;
+- execução remota opcional com o **Ongma Agent**;
 - ambiente virtual isolado para cada automação.
 
 ## Instalação rápida com Docker
@@ -112,6 +113,15 @@ Entre com `ADMIN_USERNAME` e `ADMIN_PASSWORD` definidos no primeiro startup.
 
 Consulte [.env.example](.env.example) para as demais opções.
 
+## Modos de execução
+
+O **Ongma Agent é opcional**. Você pode instalar o Ongma e executar suas automações diretamente no servidor onde a plataforma está rodando, sem instalar ou configurar o agente.
+
+- **Execução local (padrão):** selecione `local` em **Máquina / Worker Alvo**. A automação é executada no ambiente do servidor Ongma, inclusive quando ele está em um container Docker.
+- **Execução remota (opcional):** instale o Ongma Agent apenas se precisar executar automações em outra máquina, com acesso aos recursos daquele computador.
+
+> Em instalações Docker, a execução `local` ocorre **dentro do container**, não diretamente no sistema operacional do computador hospedeiro. Para acessar arquivos, dispositivos ou programas externos ao container, configure o ambiente adequadamente ou utilize o agente remoto.
+
 ## Criar uma automação
 
 1. Acesse **Automações → Nova automação**.
@@ -169,7 +179,9 @@ report_progress(70, "Processando dados")
 report_progress(100, "Concluído")
 ```
 
-## Ongma Agent
+## Ongma Agent (opcional)
+
+**Não é necessário instalar o agente para utilizar o Ongma localmente.**
 
 Use o agente quando a automação precisar rodar em outro computador, por exemplo uma máquina com ERP, certificado ou navegador visível.
 
