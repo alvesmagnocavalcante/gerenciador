@@ -272,3 +272,7 @@ Procedimentos específicos para **WSL 2**, testes da API e execução pelo códi
 - não envie `API_KEY` em mensagens ou prints;
 - mantenha o pacote GHCR público se os usuários precisarem instalar sem autenticação;
 - execute somente uma instância enquanto o banco for SQLite.
+
+## Licença
+
+Distribuído sob a licença [MIT](LICENSE).
