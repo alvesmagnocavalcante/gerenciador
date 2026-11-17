@@ -11,21 +11,54 @@ Ongma centraliza, agenda, executa e acompanha automações Python, repositórios
 
 ## Instalação rápida com Docker
 
-Não é necessário clonar o repositório nem criar `.env`:
+### Requisitos
+
+- Windows: Docker Desktop;
+- Linux: Docker Engine;
+- porta local `8000` disponível.
+
+Não é necessário instalar Python, clonar o repositório, baixar arquivos do GitHub ou criar `.env`.
+
+### 1. Iniciar
 
 ```powershell
 docker run -d --name ongma -p 127.0.0.1:8000:8000 --restart unless-stopped -v ongma-data:/app/data m4gno/ongma:latest
 ```
 
-Obtenha o token de configuração inicial, abra `http://localhost:8000` e crie o administrador:
+O Docker baixa a imagem automaticamente quando ela ainda não existe. Confirme que o container está saudável:
+
+```powershell
+docker ps --filter "name=ongma"
+docker logs --tail 100 ongma
+```
+
+### 2. Criar o primeiro administrador
+
+Obtenha o token de posse gerado na primeira inicialização:
 
 ```powershell
 docker exec ongma cat /app/data/setup-token
 ```
 
-O token é uma prova de posse local, não aparece nos logs e é removido depois do cadastro. O volume `ongma-data` preserva banco, automações, chaves internas e histórico após reinicializações.
+Abra `http://localhost:8000`, informe o token e defina o usuário e a senha do administrador.
 
-Para atualizar:
+O token não aparece nos logs e é removido depois do cadastro. Se o arquivo não existir, a instalação já possui um usuário ou foi configurada por variáveis de ambiente.
+
+### Persistência
+
+O volume Docker `ongma-data` contém:
+
+- banco SQLite;
+- usuários e senhas;
+- automações e seus arquivos;
+- histórico de execuções;
+- chaves internas da instalação.
+
+Parar, remover ou recriar somente o container não apaga esses dados.
+
+### Atualizar sem perder dados
+
+Use exatamente o mesmo volume ao recriar o container:
 
 ```powershell
 docker pull m4gno/ongma:latest
@@ -34,11 +67,24 @@ docker rm ongma
 docker run -d --name ongma -p 127.0.0.1:8000:8000 --restart unless-stopped -v ongma-data:/app/data m4gno/ongma:latest
 ```
 
+### Reinstalar completamente do zero
+
+> Atenção: este procedimento apaga definitivamente usuários, banco, automações, histórico e chaves.
+
+```powershell
+docker rm -f ongma
+docker volume rm ongma-data
+docker image rm m4gno/ongma:latest
+docker run -d --name ongma -p 127.0.0.1:8000:8000 --restart unless-stopped -v ongma-data:/app/data m4gno/ongma:latest
+```
+
+Não execute dois containers simultaneamente com o mesmo volume `ongma-data`, pois o banco é SQLite.
+
 ## Docker Compose e configuração avançada
 
 ### Linux
 
-Requisitos: Docker Engine e Docker Compose v2.
+Requisitos: Docker Engine e Docker Compose v2.24 ou superior.
 
 ```bash
 mkdir -p ~/ongma
@@ -95,7 +141,7 @@ notepad .env
 Para gerar cada chave sem instalar Python, execute duas vezes:
 
 ```powershell
-docker run --rm --entrypoint python ghcr.io/alvesmagnocavalcante/ongma:latest -c "import secrets; print(secrets.token_urlsafe(48))"
+docker run --rm --entrypoint python m4gno/ongma:latest -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
 Use resultados diferentes em `SECRET_KEY` e `API_KEY`, defina `ADMIN_PASSWORD` e inicie:
@@ -114,11 +160,7 @@ Acesse:
 http://localhost:8000
 ```
 
-Em outra máquina da rede:
-
-```text
-http://IP-DO-SERVIDOR:8000
-```
+A instalação rápida publica a porta somente em `127.0.0.1`, portanto não fica acessível por outras máquinas da rede. Para acesso remoto, use HTTPS com proxy reverso e controle de firewall; não exponha o setup diretamente à internet.
 
 Em uma instalação nova, informe o token de configuração e defina o administrador. Em instalações configuradas por variáveis de ambiente, entre com `ADMIN_USERNAME` e `ADMIN_PASSWORD`.
 
@@ -239,6 +281,14 @@ winget install --id Git.Git -e
 
 ### Configurar
 
+Em uma instalação Docker que usa chaves automáticas, consulte a `API_KEY` localmente:
+
+```powershell
+docker exec ongma python -c "import json; print(json.load(open('/app/data/internal-credentials.json'))['api_key'])"
+```
+
+Trate o valor retornado como segredo e não o envie em mensagens, prints ou logs.
+
 ```powershell
 .\ongma-agent.exe -configure
 ```
@@ -256,7 +306,7 @@ Na automação, use exatamente o mesmo nome em **Máquina / Worker Alvo**.
 
 A configuração fica em `%APPDATA%\Ongma\agent.json`; a chave é protegida pela DPAPI do Windows.
 
-## Atualizar e operar
+## Operar com Docker Compose
 
 Atualizar sem apagar os dados:
 
@@ -275,16 +325,20 @@ docker compose down
 docker compose up -d
 ```
 
-Os dados ficam no volume `ongma-data`. Não execute `docker compose down -v` salvo se quiser apagar definitivamente o banco e as automações.
+Os dados ficam no volume declarado como `ongma-data`; o Docker Compose pode adicionar o prefixo do projeto ao nome físico. Não execute `docker compose down -v` salvo se quiser apagar definitivamente o banco e as automações.
 
 ## Erros comuns
 
 | Erro | Correção |
 |---|---|
+| `Conflict. The container name "/ongma" is already in use` | Use o container existente ou execute `docker rm -f ongma` antes de recriá-lo. Remover o container não remove o volume. |
+| `No such container: ongma` | Confirme o nome com `docker ps -a`. |
+| Arquivo `/app/data/setup-token` inexistente | A instalação já foi configurada ou usa `SETUP_TOKEN`; tente acessar `/login`. |
+| Porta `8000` ocupada | Use outra porta no host, como `-p 127.0.0.1:8003:8000`, e acesse `http://localhost:8003`. |
+| Container reiniciando ou `unhealthy` | Execute `docker logs --tail 100 ongma`. |
+| Builder `ongma-builder` já existe | Execute `docker buildx use ongma-builder`; não tente criá-lo novamente. |
 | `no configuration file provided` | Entre na pasta que contém `compose.yaml`. |
-| Container reiniciando | Execute `docker compose logs --tail=100 ongma` e revise o `.env`. |
 | `ADMIN_PASSWORD ... too_short` | Use no mínimo 8 caracteres e recrie o container. |
-| O log ainda exige 12 caracteres | Execute `docker compose pull ongma` e recrie com `--force-recreate`. |
 | API retorna `401` | Confirme `API_KEY` e recrie o container após alterar o `.env`. |
 | Agente não conecta | Use o IP do servidor, valide a porta 8000 e confira o firewall. |
 | Git não encontrado no agente | Instale Git e reinicie o agente. |
@@ -296,8 +350,53 @@ Procedimentos específicos para **WSL 2**, testes da API e execução pelo códi
 - Nunca versione `.env`, banco, tokens ou senhas;
 - use um token Git somente de leitura para repositórios privados;
 - não envie `API_KEY` em mensagens ou prints;
-- mantenha o pacote GHCR público se os usuários precisarem instalar sem autenticação;
+- mantenha o repositório `m4gno/ongma` público no Docker Hub para instalação sem autenticação;
 - execute somente uma instância enquanto o banco for SQLite.
+
+## Publicar uma nova versão no Docker Hub
+
+Esta seção é destinada aos mantenedores. Usuários finais precisam apenas executar a imagem publicada.
+
+1. Execute os testes:
+
+```powershell
+uv run pytest -q
+```
+
+2. Autentique-se e selecione o builder multi-arquitetura:
+
+```powershell
+docker login -u m4gno
+docker buildx use ongma-builder
+docker buildx inspect --bootstrap
+```
+
+Se o builder ainda não existir:
+
+```powershell
+docker buildx create --name ongma-builder --driver docker-container --use
+docker buildx inspect --bootstrap
+```
+
+3. Construa e publique AMD64 e ARM64. Ajuste a versão antes de executar:
+
+```powershell
+docker buildx build `
+  --builder ongma-builder `
+  --platform linux/amd64,linux/arm64 `
+  --tag m4gno/ongma:0.1.0 `
+  --tag m4gno/ongma:latest `
+  --push `
+  .
+```
+
+4. Valide o manifesto publicado:
+
+```powershell
+docker buildx imagetools inspect m4gno/ongma:latest
+```
+
+O manifesto deve listar `linux/amd64` e `linux/arm64`. Não publique `latest` antes de validar instalação, setup e persistência com um volume novo.
 
 ## Licença
 
