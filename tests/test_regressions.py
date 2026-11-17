@@ -249,8 +249,9 @@ def test_insecure_settings_and_legacy_sessions_are_rejected(monkeypatch):
     with pytest.raises(ValidationError):
         Settings(_env_file=None, SECRET_KEY="super-secret-key-change-in-production-1234567890")
     monkeypatch.delenv("SECRET_KEY")
-    with pytest.raises(ValidationError):
-        Settings(_env_file=None)
+    generated_settings = Settings(_env_file=None)
+    assert len(generated_settings.SECRET_KEY) >= 32
+    assert generated_settings.SECRET_KEY != generated_settings.API_KEY
     signature = hmac.new(settings.SECRET_KEY.encode(), b"testadmin", hashlib.sha256).hexdigest()
     assert verify_session(f"testadmin:{signature}") is None
     assert verify_session(sign_session("testadmin", timestamp=int(time.time()) + 3600)) is None

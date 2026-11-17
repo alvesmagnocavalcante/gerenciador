@@ -39,7 +39,13 @@ def get_api_user(request: Request, db: Session = Depends(get_db)) -> Optional[Us
             if auth_header.lower().startswith("bearer "):
                 provided_key = auth_header[7:].strip()
         if provided_key and hmac.compare_digest(provided_key, settings.API_KEY):
-            return db.query(User).filter(User.is_admin == True).first()
+            admin = db.query(User).filter(User.is_admin == True).first()
+            if admin:
+                return admin
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Conclua a configuração inicial antes de usar a API.",
+            )
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

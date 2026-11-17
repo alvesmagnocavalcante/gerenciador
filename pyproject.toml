@@ -20,4 +20,5 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+cache_dir = ".test-artifacts/pytest-cache"
 

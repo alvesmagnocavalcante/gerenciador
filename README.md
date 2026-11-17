@@ -11,6 +11,31 @@ Ongma centraliza, agenda, executa e acompanha automações Python, repositórios
 
 ## Instalação rápida com Docker
 
+Não é necessário clonar o repositório nem criar `.env`:
+
+```powershell
+docker run -d --name ongma -p 127.0.0.1:8000:8000 --restart unless-stopped -v ongma-data:/app/data m4gno/ongma:latest
+```
+
+Obtenha o token de configuração inicial, abra `http://localhost:8000` e crie o administrador:
+
+```powershell
+docker exec ongma cat /app/data/setup-token
+```
+
+O token é uma prova de posse local, não aparece nos logs e é removido depois do cadastro. O volume `ongma-data` preserva banco, automações, chaves internas e histórico após reinicializações.
+
+Para atualizar:
+
+```powershell
+docker pull m4gno/ongma:latest
+docker stop ongma
+docker rm ongma
+docker run -d --name ongma -p 127.0.0.1:8000:8000 --restart unless-stopped -v ongma-data:/app/data m4gno/ongma:latest
+```
+
+## Docker Compose e configuração avançada
+
 ### Linux
 
 Requisitos: Docker Engine e Docker Compose v2.
@@ -37,7 +62,7 @@ Edite o `.env`:
 nano .env
 ```
 
-Preencha pelo menos:
+Para gerenciar as credenciais externamente ou criar o administrador sem a tela de setup, preencha:
 
 ```env
 SECRET_KEY=primeira-chave-gerada
@@ -95,7 +120,7 @@ Em outra máquina da rede:
 http://IP-DO-SERVIDOR:8000
 ```
 
-Entre com `ADMIN_USERNAME` e `ADMIN_PASSWORD` definidos no primeiro startup.
+Em uma instalação nova, informe o token de configuração e defina o administrador. Em instalações configuradas por variáveis de ambiente, entre com `ADMIN_USERNAME` e `ADMIN_PASSWORD`.
 
 > Alterar `ADMIN_PASSWORD` no `.env` não modifica uma conta que já foi criada no banco.
 
@@ -103,10 +128,11 @@ Entre com `ADMIN_USERNAME` e `ADMIN_PASSWORD` definidos no primeiro startup.
 
 | Variável | Padrão | Uso |
 |---|---|---|
-| `SECRET_KEY` | obrigatória | Assina sessões. Use uma chave aleatória com pelo menos 32 caracteres. |
-| `API_KEY` | vazia | Autentica a API e o Ongma Agent. |
+| `SECRET_KEY` | gerada no volume | Assina sessões; uma variável explícita tem precedência. |
+| `API_KEY` | gerada no volume | Autentica a API e o Ongma Agent; uma variável explícita tem precedência. |
+| `SETUP_TOKEN` | arquivo no volume | Autorização opcional do primeiro cadastro gerenciada externamente. |
 | `ADMIN_USERNAME` | `admin` | Usuário administrador inicial. |
-| `ADMIN_PASSWORD` | obrigatória no primeiro uso | Senha inicial com pelo menos 8 caracteres. |
+| `ADMIN_PASSWORD` | vazia | Se definida, cria o administrador legado; caso contrário, usa `/setup`. |
 | `TIMEZONE` | `America/Sao_Paulo` | Fuso do agendador e das datas do painel. |
 | `MAX_CONCURRENT_EXECUTIONS` | `5` | Limite de automações locais simultâneas. |
 | `DEFAULT_TIMEOUT_SECONDS` | `3600` | Timeout padrão das automações. |

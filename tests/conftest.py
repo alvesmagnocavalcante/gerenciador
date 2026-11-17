@@ -53,6 +53,13 @@ def db_session():
 
 
 @pytest.fixture
+def artifact_tmp_path():
+    path = TEST_ROOT / f"case-{uuid.uuid4().hex}"
+    path.mkdir()
+    return path
+
+
+@pytest.fixture
 def client():
     # Cada requisição recebe sua própria sessão, como em produção.
     with TestClient(app) as test_client:

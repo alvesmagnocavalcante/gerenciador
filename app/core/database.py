@@ -77,9 +77,14 @@ def init_db():
     # Criação do usuário admin inicial se não existir
     from app.models.user import User
     from app.core.security import hash_password, verify_password
+    from app.core.config import ensure_setup_token, remove_setup_token
 
     with SessionLocal() as db:
         admin_user = db.query(User).filter(User.username == settings.ADMIN_USERNAME).first()
+        if not admin_user and not settings.ADMIN_PASSWORD:
+            if db.query(User).count() == 0:
+                ensure_setup_token()
+            return
         if not admin_user:
             if not settings.ADMIN_PASSWORD:
                 raise RuntimeError("Defina ADMIN_PASSWORD (mínimo 8 caracteres) para criar o administrador.")
@@ -90,7 +95,8 @@ def init_db():
             )
             db.add(admin_user)
             db.commit()
-        elif verify_password(admin_user.password_hash, "admin123"):
+            remove_setup_token()
+        elif settings.ADMIN_PASSWORD and verify_password(admin_user.password_hash, "admin123"):
             if not settings.ADMIN_PASSWORD:
                 raise RuntimeError("Defina ADMIN_PASSWORD para substituir a senha padrão insegura.")
             admin_user.password_hash = hash_password(settings.ADMIN_PASSWORD)

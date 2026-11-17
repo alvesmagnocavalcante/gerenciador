@@ -8,6 +8,7 @@ from typing import Optional
 from app.core.config import settings
 
 SESSION_MAX_AGE_SECONDS = 86400 * 7  # 7 dias
+CSRF_MAX_AGE_SECONDS = 3600
 
 def hash_password(password: str) -> str:
     """Gera hash PBKDF2-HMAC-SHA256 seguro com salt aleatório."""
@@ -70,6 +71,34 @@ def verify_session(token: Optional[str], max_age: int = SESSION_MAX_AGE_SECONDS)
     except Exception:
         return None
     return None
+
+
+def create_csrf_token(purpose: str) -> str:
+    timestamp = int(time.time())
+    nonce = secrets.token_urlsafe(24)
+    payload = f"{purpose}:{timestamp}:{nonce}"
+    signature = hmac.new(
+        settings.SECRET_KEY.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+    return f"{payload}:{signature}"
+
+
+def verify_csrf_token(token: Optional[str], purpose: str) -> bool:
+    if not token:
+        return False
+    try:
+        token_purpose, timestamp_text, nonce, signature = token.split(":", 3)
+        timestamp = int(timestamp_text)
+        age = time.time() - timestamp
+        if token_purpose != purpose or age < -60 or age > CSRF_MAX_AGE_SECONDS:
+            return False
+        payload = f"{token_purpose}:{timestamp_text}:{nonce}"
+        expected = hmac.new(
+            settings.SECRET_KEY.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(signature, expected)
+    except (TypeError, ValueError):
+        return False
 
 def resolve_safe_path(base_dir: Path, relative_path: str) -> Path:
     """Resolve um caminho relativo garantindo que permaneça estritamente dentro de base_dir."""

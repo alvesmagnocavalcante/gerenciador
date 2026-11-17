@@ -1,4 +1,8 @@
 import html
+import hmac
+import re
+import threading
+import time
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -7,11 +11,20 @@ from fastapi import APIRouter, Request, Depends, Form, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, desc, or_
+from sqlalchemy import and_, desc, or_, text
+from sqlalchemy.exc import IntegrityError, OperationalError
 
-from app.core.config import settings
+from app.core.config import read_setup_token, remove_setup_token, settings
 from app.core.database import get_db
-from app.core.security import verify_password, sign_session, resolve_safe_path, SESSION_MAX_AGE_SECONDS
+from app.core.security import (
+    SESSION_MAX_AGE_SECONDS,
+    create_csrf_token,
+    hash_password,
+    resolve_safe_path,
+    sign_session,
+    verify_csrf_token,
+    verify_password,
+)
 from app.models.user import User
 from app.models.automation import Automation
 from app.models.execution import Execution
@@ -54,12 +67,138 @@ templates.env.globals["localdatetime"] = format_datetime_filter
 
 router = APIRouter()
 
+SETUP_CSRF_COOKIE = "ongma_setup_csrf"
+_SETUP_USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,50}$")
+_setup_attempts: dict[str, list[float]] = {}
+_setup_attempts_lock = threading.Lock()
+
+
+def _setup_rate_limited(client_host: str) -> bool:
+    now = time.monotonic()
+    with _setup_attempts_lock:
+        attempts = [value for value in _setup_attempts.get(client_host, []) if now - value < 900]
+        _setup_attempts[client_host] = attempts
+        return len(attempts) >= 5
+
+
+def _record_setup_failure(client_host: str) -> None:
+    with _setup_attempts_lock:
+        _setup_attempts.setdefault(client_host, []).append(time.monotonic())
+
+
+def _render_setup(
+    request: Request,
+    error: Optional[str] = None,
+    username: str = "",
+    status_code: int = 200,
+):
+    csrf_token = create_csrf_token("setup")
+    response = templates.TemplateResponse(
+        request=request,
+        name="setup.html",
+        context={"error": error, "username": username, "csrf_token": csrf_token},
+        status_code=status_code,
+    )
+    response.set_cookie(
+        SETUP_CSRF_COOKIE,
+        csrf_token,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        max_age=3600,
+    )
+    return response
+
+
+@router.get("/setup", response_class=HTMLResponse)
+def setup_page(request: Request, db: Session = Depends(get_db)):
+    if db.query(User).first():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Configuração indisponível.")
+    return _render_setup(request)
+
+
+@router.post("/setup", response_class=HTMLResponse)
+def setup_post(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    password_confirmation: str = Form(...),
+    setup_token: str = Form(...),
+    csrf_token: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    client_host = request.client.host if request.client else "unknown"
+    if _setup_rate_limited(client_host):
+        return _render_setup(request, "Muitas tentativas. Aguarde alguns minutos.", username, 429)
+
+    cookie_token = request.cookies.get(SETUP_CSRF_COOKIE)
+    if not hmac.compare_digest(cookie_token or "", csrf_token) or not verify_csrf_token(csrf_token, "setup"):
+        _record_setup_failure(client_host)
+        return _render_setup(request, "Solicitação inválida. Recarregue a página.", username, 403)
+
+    try:
+        expected_setup_token = read_setup_token()
+    except RuntimeError:
+        if db.query(User).first():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Configuração já concluída.")
+        logger.exception("Não foi possível validar a autorização do setup.")
+        return _render_setup(request, "Configuração inicial indisponível.", username, 503)
+    if not hmac.compare_digest(setup_token.strip(), expected_setup_token):
+        _record_setup_failure(client_host)
+        return _render_setup(request, "Token de configuração inválido.", username, 403)
+
+    clean_username = username.strip()
+    if not _SETUP_USERNAME_RE.fullmatch(clean_username):
+        return _render_setup(
+            request,
+            "Use de 3 a 50 caracteres: letras, números, ponto, hífen ou sublinhado.",
+            clean_username,
+            400,
+        )
+    if len(password) < 12 or len(password) > 256:
+        return _render_setup(request, "A senha deve ter entre 12 e 256 caracteres.", clean_username, 400)
+    if password != password_confirmation:
+        return _render_setup(request, "A confirmação da senha não confere.", clean_username, 400)
+
+    try:
+        db.execute(text("BEGIN IMMEDIATE"))
+        if db.query(User).first():
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Configuração já concluída.")
+        db.add(User(username=clean_username, password_hash=hash_password(password), is_admin=True))
+        db.commit()
+    except HTTPException:
+        raise
+    except (IntegrityError, OperationalError) as exc:
+        db.rollback()
+        logger.warning("Tentativa concorrente de configuração inicial rejeitada.")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Configuração já concluída.") from exc
+
+    remove_setup_token()
+    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(SETUP_CSRF_COOKIE)
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=sign_session(clean_username),
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+        max_age=SESSION_MAX_AGE_SECONDS,
+    )
+    return response
+
 # ----------------- AUTENTICAÇÃO -----------------
 
 @router.get("/login", response_class=HTMLResponse)
-def login_page(request: Request, user: Optional[User] = Depends(get_current_user_optional)):
+def login_page(
+    request: Request,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
     if user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+    if db.query(User).first() is None:
+        return RedirectResponse(url="/setup", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
     return templates.TemplateResponse(request=request, name="login.html", context={"error": None})
 
 @router.post("/login", response_class=HTMLResponse)
